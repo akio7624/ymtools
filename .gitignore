@@ -5,6 +5,3 @@ dist
 main.spec
 
 *.pyc
-
-samples/*
-patched/*
