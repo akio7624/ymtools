@@ -217,7 +217,8 @@ uint64 GetFileSetPaddingCount(uint64 size) {
     } else if(PACKHEDR.FS_PAD_TYPE == 2) {
         return (-size) & 511;
     } else {
-        Assert(false, Str("%d is an unknown FS PADDING TYPE. Please report it.", typ));
+        Assert(false, Str("%d is an unknown FS PADDING TYPE. Please report it.", PACKHEDR.FS_PAD_TYPE));
+        return 0;
     }
 }
 
