@@ -1,0 +1,509 @@
+//------------------------------------------------
+//--- 010 Editor v14.0.1 Binary Template
+//
+//      File: APK.bt
+//   Authors: akio7624
+//   Version: 2.0
+//   Purpose: Parse APK archives found in some console games (not Android APKs)
+//  Category: Game
+// File Mask: *.apk
+//  ID Bytes: 45 4E 44 49 4C 54 4C 45  // ENDILTLE
+//   History: 
+//   1.0   2024-10-31 Initial release
+//   1.1   2024-11-01 Newly identified items have been incorporated
+//   1.2   2024-11-01 Modify segment structure if IDENTIFIER in TOC_SEGMENT is 1 (indicates a directory).
+//   1.3   2024-12-08 Change PACKHEDR.unknown_1 to NAME_IDX, FS_SEGMENT.ZERO to unknown_1
+//   2.0   2026-00-00 Significant changes and updates applied
+//
+//------------------------------------------------
+//
+// For more detailed file structure information,
+// please refer to https://github.com/akio7624/ApkIdxTemplate
+//
+// This template was created based on the QuickBMS script dragon_ball_z_boz.bms and
+// the author & AI's analysis.
+// Although not all fields have been fully analyzed,
+// there should be no issues with extracting or packing files.
+// If you'd like to share additional information, please open issue on repository.
+// https://github.com/akio7624/ApkIdxTemplate
+// 
+// 
+// table header: cLtGreen
+// table padding, size: cLtAqua
+// ROOT files padding: cDkAqua
+// FS padding: cAqua
+// unknown: cLtGray
+// hash, zero: cSilver
+
+
+
+// ===================================== common struct =====================================
+// ENDIan LiTLE
+struct _ENDILTLE {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: ENDILTLE
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: 0
+    
+    // 테이블 본문 크기가 0으로 고정이므로 별도 패딩 불필요
+};
+
+// PACKE HEaDeR
+struct _PACKHEDR {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: ENDILTLE
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: 32
+    
+    uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 65536
+    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFnameFromNameIdx(this)>;
+    uint32 ROOT_FILES_OFS <format=hex, bgcolor=cLtRed>;  // 절대 오프셋, 엔진이 실제로 쓰는것 같지는 않음
+    uint32 FS_PAD_TYPE <bgcolor=cLtPurple, comment=MakeFsPaddingTypeComment(this)>;  // assert: 1 or 2
+    byte HASH[16] <format=hex, bgcolor=cSilver>;  // 해시값 얻는 방식 불명, 임의값으로 채워도 문제 없음
+    
+    // PACKHEDR 전체 크기가 48로 이미 16에 정렬되어 있으므로 별도 패딩 불필요
+};
+
+
+struct _TOC_SEGMENT {
+    char IDENTIFIER <fgcolor=cWhite, bgcolor=cDkPurple, comment=MakeTocIdentifierComment(this)>;
+    char COMPRESS_TYPE <fgcolor=cWhite, bgcolor=cDkBlue, comment=MakeCompressTypeComment(this)>;  // assert: if IDENTIFIER==1 then 0 and  value must be 0 or 2
+    uint16 unknown_1 <bgcolor=cLtGray>;  // assert: 0
+    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFnameFromNameIdx(this)>;
+    uint32 PACKAGE_NAME_IDX <bgcolor=0xa7b193, comment=GetFnameFromNameIdx(this)>;
+    uint32 unknown_2 <bgcolor=cLtGray>;  // assert: 0
+    if(IDENTIFIER == 1) {  // Directory
+        uint32 ENTRY_INDEX <bgcolor=0xf09dcb, format=decimal>;
+        uint32 ENTRY_COUNT <bgcolor=0xe1c1f0, format=decimal>;
+        uint64 unused_1 <bgcolor=0x97d1ad, comment="Ignored for directories">;  // assert: 0
+        uint64 unused_2 <bgcolor=0xb8fedb, comment="Ignored for directories">;  // assert: 0
+    } else if(IDENTIFIER == 0) {  // File
+        int64 FILE_ABSOLUTE_OFS <format=hex, bgcolor=0xa2c299>;  // Absolute Offset
+        int64 FILE_SIZE <bgcolor=0x97d1ad>;  // assert: if COMPRESS_TYPE==0 then FILE_SIZE > 0
+        int64 FILE_ZSIZE <bgcolor=0xb8fedb>;    // if COMPRESS_TYPE==2 then FILE_ZSIZE > 0
+    } else { Assert(false, Str("Unknown IDENTIFIER '%d'", IDENTIFIER)); }
+};
+
+// PACK Table Of Content
+struct _PACKTOC {
+    char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'PACKTOC '  <- the last character is a space(ascii 0x20), not null
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(TOC_SEG_SIZE + TOC_SEG_COUNT + TOC_SEG_LIST_OFS + unknown_1 + (TOC_SEG_SIZE * TOC_SEG_COUNT))
+    
+    uint32 TOC_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 40
+    uint32 TOC_SEG_COUNT <bgcolor=cPurple>;
+    uint32 TOC_SEG_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16   Local Offset, base: start of PACKTOC.TOC_SEG_SIZE
+    uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 0
+    // assert: Segments must be properly sorted for binary search
+    _TOC_SEGMENT TOC_SEG_LIST[TOC_SEG_COUNT] <comment=Str("Segment for '%s'", GetFnameFromNameIdx(this.NAME_IDX)), optimize=false>;
+    
+    byte PACKTOC_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+struct _FS_SEGMENT {
+    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFnameFromNameIdx(this)>;
+    uint32 PACKAGE_NAME_IDX <bgcolor=0xa7b193, comment=GetFnameFromNameIdx(this)>;
+    uint64 FS_ABSOLUTE_OFS <format=hex, bgcolor=0xa2c299>;  // Absolute Offset
+    uint64 FS_SIZE <bgcolor=0x97d1ad>;
+    byte FS_HASH[16] <format=hex, bgcolor=cSilver>;  // assert: md5( [FS_ABSOLUTE_OFS, FS_ABSOLUTE_OFS+FS_SIZE) )
+};
+
+// PACK File Set LiSt
+struct _PACKFSLS {
+    char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSLS
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(FS_SEG_COUNT + FS_SEG_SIZE + FS_SEG_LIST_OFS + unknown_1 + (FS_SEG_SIZE * FS_SEG_COUNT))
+    
+    // Notice: The order of the count and size fields is the reverse of PACKTOC.
+    uint32 FS_SEG_COUNT <bgcolor=cPurple>;
+    uint32 FS_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 40
+    uint32 FS_SEG_LIST_OFS <bgcolor=cLtYellow >;  // assert: 16   Local Offset, base: start of PACKFSLS.FS_SEG_COUNT
+    uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 0
+    _FS_SEGMENT FS_SEG_LIST[FS_SEG_COUNT] <comment=Str("Segment for FS '%s'", GetFnameFromNameIdx(this.NAME_IDX))>;
+    
+    byte PACKFSLS_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+struct FILENAME {
+    string fname;
+};
+
+// GENEral STRing Table
+struct _GENESTRT {
+    char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: GENESTRT
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(align16(16 + (4 * STRING_COUNT)) + arrsize(STRING_LIST))
+    
+    uint32 STRING_COUNT <bgcolor=cPurple>;
+    uint32 STRING_OFS_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16   로컬 오프셋
+    uint32 STRING_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16+ 4*STRING_COUNT를 16으로 올린것   로컬 오프셋
+    uint32 TABLE_SIZE_2 <bgcolor=cLtAqua>;  // assert: ==TABLE_SIZE    실제로 엔진이 사용하는것 같지는 않음. TABLE_SIZE랑 값만 동일하게 맞춰두면 될듯
+    uint32 STRING_OFS_LIST[STRING_COUNT] <bgcolor=cLtRed>;  // uint32 배열
+    byte STRING_OFS_LIST_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+    FILENAME STRING_LIST[STRING_COUNT] <optimize=false, bgcolor=0xddf6d6, read=(fname)>;  // array of null terminated string
+    byte STRING_LIST_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+    
+    // STRING_LIST_PAD에 의해 자연스럽게 16에 정렬되므로 별도 패딩 불필요
+};
+
+// GENEral End Of File
+struct _GENEEOF {
+    char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GENEEOF '  <- the last character is a space(ascii 0x20), not null
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: 0
+    
+    // 테이블 본문 크기가 0으로 고정이므로 별도 패딩 불필요
+};
+
+// ===================================== FS-specific structure =====================================
+
+struct _FS_FILE_SEG {
+    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFileSetFnameFromNameIdx(parentof(parentof(parentof(this))).GENESTRT, this)>;
+    uchar COMPRESS_TYPE <fgcolor=cWhite, bgcolor=cDkBlue, comment=MakeCompressTypeComment(this)>;  // assert: value must be 0 or 2
+    uchar unknown_1 <bgcolor=cLtGray>;  // assert: 0
+    uchar unknown_2 <bgcolor=cLtGray>;  // assert: 0
+    uchar unknown_3 <bgcolor=cLtGray>;  // assert: 0
+    uint64 FILE_OFS <format=hex, bgcolor=0xa2c299>;
+    uint64 FILE_SIZE <bgcolor=0x97d1ad>;  // assert: if COMPRESS_TYPE==0 then FILE_SIZE > 0
+    uint64 FILE_ZSIZE <bgcolor=0xb8fedb>;  // assert: if COMPRESS_TYPE==2 then FILE_ZSIZE > 0
+};
+
+// PACK File Set HeaDer
+struct _PACKFSHD {
+    char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSHD
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: unknown_1 + FILE_SEG_SIZE + FILE_SEG_COUNT + FS_FILE_SEG_LIST_OFS + GENESTRT_OFS + unknown_2 + unknown_3 + unknown_4 + (FILE_SEG_SIZE * FILE_SEG_COUNT)
+    
+    uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 65536
+    uint32 FILE_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 32
+    uint32 FILE_SEG_COUNT <bgcolor=cPurple>;
+    uint32 FS_FILE_SEG_LIST_OFS <bgcolor=cLtYellow>;  // assert: 32   Local Offset, base: start of PACKFSHD.unknown_1
+    uint32 GENESTRT_OFS <bgcolor=cLtGray>;  // size(ENDILTLE) + size(PACKFSHD) + size(GENESTRT), 엔진은 미사용
+    uint32 unknown_2 <bgcolor=cLtGray>;  // assert: 0
+    uint32 unknown_3 <bgcolor=cLtGray>;  // assert: 0
+    uint32 unknown_4 <bgcolor=cLtGray>;  // assert: 0
+    _FS_FILE_SEG FS_FILE_SEG_LIST[FILE_SEG_COUNT] <comment=Str("Segment for file '%s'", GetFileSetFnameFromNameIdx(parentof(parentof(this)).GENESTRT, this.NAME_IDX))>;
+    
+    byte PACKFSHD_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+// ==================================================================================
+
+
+
+// ===================================== method =====================================
+// -------------------------- Padding Size --------------------------
+
+// Calculates padding size to align current offset to 16
+uint64 GetAlign16Count() {
+    return (-FTell()) & 15;
+}
+
+// Calculates padding size to align current offset to 512
+uint64 GetAlign512Count() {
+    return (-FTell()) & 511;
+}
+
+// Calculates padding size to align current offset to 2048
+uint64 GetAlign2048Count() {
+    return (-FTell()) & 2047;
+}
+
+// Calculates padding size to align size to 512
+uint64 GetRootFileBlockSize(uint64 size) {
+    return (-size) & 511;
+}
+
+// Calculates padding size to align size to 16
+uint64 GetFileSetFileBlockSize(uint64 size) {
+    return (-size) & 15;
+}
+
+// Calculates padding size to align FS to FS_PAD_TYPE
+uint64 GetFileSetPaddingCount(uint64 size) {
+    if(PACKHEDR.FS_PAD_TYPE == 1) {
+        return (-size) & 2047;
+    } else if(PACKHEDR.FS_PAD_TYPE == 2) {
+        return (-size) & 511;
+    } else {
+        Assert(false, Str("%d is an unknown FS PADDING TYPE. Please report it.", typ));
+    }
+}
+
+// ------------------------- Name ----------------------------------
+
+string GetFnameFromNameIdx(uint32 name_idx) {
+    local string fname = GENESTRT.STRING_LIST[name_idx].fname;
+    if(Strcmp(fname, "") == 0){
+        return "(empty string)";
+    }else {
+        return fname;
+    }
+}
+
+string GetFileSetFnameFromNameIdx(_GENESTRT &genestrt, uint32 name_idx) {
+    local string fname = genestrt.STRING_LIST[name_idx].fname;
+    
+    if(Strcmp(fname, "") == 0){
+        return "(empty string)";
+    }else {
+        return fname;
+    }
+}
+
+// ------------------------- Comment -----------------------------------
+
+string MakeTocIdentifierComment(uint32 identifier) {
+    if(identifier == 0) {
+        return "File";
+    }else if(identifier == 1) {
+        return "Directory";
+    }else{
+        return Str("%d is an unknown IDENTIFIER. Please report it.", identifier);
+    }
+}
+
+string MakeCompressTypeComment(uint32 compress) {
+    if(compress == 0) {
+        return "Uncompressed or Directory";
+    }else if(compress == 2) {
+        return "Compressed with zlib";
+    }else{
+        return Str("%d is an unknown COMPRESS_TYPE. Please report it.", compress);
+    }
+}
+
+string MakeFsPaddingTypeComment(uint32 typ) {
+    if(typ == 1) {
+        return "Pad the fileset to 2048 bytes.";
+    }else if(typ == 2) {
+        return "Pad the fileset to 512 bytes.";
+    }else{
+        return Str("%d is an unknown FS PADDING TYPE. Please report it.", typ);
+    }
+}
+
+// ------------------------- Sort ---------------------------------
+
+// 루트 파일 및 FS 간접정렬용 퀵정렬
+void QuickSortRecursive(uint64 ofs_list[], int pos_list[], int low, int high) {
+    if (low >= high) return;
+
+    local uint64 pivot_ofs = ofs_list[pos_list[(low + high) / 2]];
+    local int left = low;
+    local int right = high;
+    local int temp_swap;
+
+    while (left <= right) {
+        while (ofs_list[pos_list[left]] < pivot_ofs) left++;
+        while (ofs_list[pos_list[right]] > pivot_ofs) right--;
+
+        if (left <= right) {
+            temp_swap = pos_list[left];
+            pos_list[left] = pos_list[right];
+            pos_list[right] = temp_swap;
+            left++;
+            right--;
+        }
+    }
+
+    if (low < right) QuickSortRecursive(ofs_list, pos_list, low, right);
+    if (left < high) QuickSortRecursive(ofs_list, pos_list, left, high);
+}
+
+void QuickSortOffsets(uint64 ofs_list[], int pos_list[], int count) {
+    if (count > 1) {
+        QuickSortRecursive(ofs_list, pos_list, 0, count - 1);
+    }
+}
+// ==================================================================================
+
+
+
+// ===================================== File analysis area. =====================================
+LittleEndian();  // Use Little Endian
+
+_ENDILTLE ENDILTLE;
+Assert(Strcmp(ENDILTLE.SIGNATURE, "ENDILTLE") == 0, "The signature of the `ENDILTLE` table must be 'ENDILTLE'.");
+
+_PACKHEDR PACKHEDR;
+Assert(Strcmp(PACKHEDR.SIGNATURE, "PACKHEDR") == 0, "The signature of the `PACKHEDR` table must be 'PACKHEDR'.");
+
+_PACKTOC PACKTOC;
+Assert(Strcmp(PACKTOC.SIGNATURE, "PACKTOC ") == 0, "The signature of the `PACKTOC` table must be 'PACKTOC '.");
+
+_PACKFSLS PACKFSLS;
+Assert(Strcmp(PACKFSLS.SIGNATURE, "PACKFSLS") == 0, "The signature of the `PACKFSLS` table must be 'PACKFSLS'.");
+
+_GENESTRT GENESTRT;
+Assert(Strcmp(GENESTRT.SIGNATURE, "GENESTRT") == 0, "The signature of the `GENESTRT` table must be 'GENESTRT'.");
+
+_GENEEOF GENEEOF;
+Assert(Strcmp(GENEEOF.SIGNATURE, "GENEEOF ") == 0, "The signature of the `GENEEOF` table must be 'GENEEOF '.");
+
+// GENEEOF 까지의 사이즈를 2048에 맞춰 올림한 오프셋 부터 파일의 바이너리 데이터 영역(ROOT_FILES)가 시작됨. 그 사이를 패딩하는 부분
+byte TABLE_END_PAD[GetAlign2048Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+
+
+// 바이너리 파일 리스트 시작. 각 파일은 512바이트 단위 블록
+// TOC_SEG의 오프셋만 정확하다면 이 파일들은 이름으로 정렬이 되어 있지 않아도 됨
+local int i = 0;
+local uint64 root_files_size = 0;
+local char flag_not_exists_root_files = 1;  // TOC 세그먼트 개수가 0이거나 파일만 있어 실제로 ROOT_FILES 영역이 없는 경우 검사용
+
+// TOC 세그먼트 기준으로 정렬시 템플릿 상의 file들 간의 순서가 섞일 수 있으므로 먼저 정렬해준다
+// 바이너리 템플릿은 다차원 배열을 지원하지 않으므로 구조체 배열로 만든 후 간접 정렬 한다
+typedef struct {  // 템플릿화에 필요한 필수 데이터만 담을 임시 구조체
+    uint64 ofs;
+    uint64 real_size;
+    uchar compress_type;
+    uint32 name_idx;
+} _TOC_SORT_SEG;
+
+// TOC_SEG_COUNT가 0일 경우 배열 크기 오류 방지
+if (PACKTOC.TOC_SEG_COUNT > 0) {
+    local _TOC_SORT_SEG toc_seg_list[PACKTOC.TOC_SEG_COUNT];
+    local uint64 toc_seg_ofs_list[PACKTOC.TOC_SEG_COUNT];  // 정렬용 오프셋 배열 추가
+    local int toc_sorted_pos[PACKTOC.TOC_SEG_COUNT];  // 정렬된 인덱스 저장용 배열
+}
+
+// TOC 세그먼트에서 필요한 값만 복사해온다
+local int toc_seg_list_cnt = 0;  // 실제 파일 세그먼트 개수 세기용
+for(i=0; i<PACKTOC.TOC_SEG_COUNT; i++) {
+    if (PACKTOC.TOC_SEG_LIST[i].IDENTIFIER == 1) { continue; }  // 폴더면 건너뛴다
+    
+    toc_seg_list[toc_seg_list_cnt].ofs = PACKTOC.TOC_SEG_LIST[i].FILE_ABSOLUTE_OFS;
+    toc_seg_list[toc_seg_list_cnt].real_size = (PACKTOC.TOC_SEG_LIST[i].COMPRESS_TYPE != 2) ? PACKTOC.TOC_SEG_LIST[i].FILE_SIZE : PACKTOC.TOC_SEG_LIST[i].FILE_ZSIZE;
+    toc_seg_list[toc_seg_list_cnt].compress_type = PACKTOC.TOC_SEG_LIST[i].COMPRESS_TYPE;
+    toc_seg_list[toc_seg_list_cnt].name_idx = PACKTOC.TOC_SEG_LIST[i].NAME_IDX;
+    
+    // 오프셋 추출 및 간접 정렬용 배열 초기화
+    toc_seg_ofs_list[toc_seg_list_cnt] = toc_seg_list[toc_seg_list_cnt].ofs;
+    toc_sorted_pos[toc_seg_list_cnt] = toc_seg_list_cnt;
+    toc_seg_list_cnt++;  // 실제 파일 개수만 카운트
+}
+
+// 공통 정렬 함수 호출 (참조로 넘겨져 toc_sorted_pos가 내부에서 정렬됨)
+if(toc_seg_list_cnt > 0) {
+    QuickSortOffsets(toc_seg_ofs_list, toc_sorted_pos, toc_seg_list_cnt);
+}
+
+
+struct _FILE_LIST {
+    local uchar COMPRESS_TYPE;
+    local uint32 name_idx;
+    local uint64 FILE_ABSOLUTE_OFS, real_size, padding_count;
+    local int idx;
+    
+    for(i=0; i<toc_seg_list_cnt; i++) {
+        idx = toc_sorted_pos[i];
+        
+        COMPRESS_TYPE = toc_seg_list[idx].compress_type;
+        FILE_ABSOLUTE_OFS = toc_seg_list[idx].ofs;
+        real_size = toc_seg_list[idx].real_size;
+        name_idx = toc_seg_list[idx].name_idx;
+        
+        if(real_size == 0) continue;  
+        flag_not_exists_root_files = 0;  
+        
+        root_files_size += real_size;
+        
+        FSeek(FILE_ABSOLUTE_OFS);  // 해당 파일의 절대 위치로 이동
+    
+        padding_count = GetRootFileBlockSize(real_size);
+        
+        struct _FILE{
+            // 스코프 문제로 comment에서 name_idx 참조하려면 구조체 안에 사본 만들어둬야함
+            local uint32 tmp_name_idx = name_idx;
+            
+            byte data[real_size] <bgcolor=0x72bafb>;
+            if(padding_count != 0) {
+                byte padding[padding_count] <bgcolor=cLtAqua>;
+            }
+        } file <comment=GetFnameFromNameIdx(tmp_name_idx)>;
+    }
+} ROOT_FILES <comment=(flag_not_exists_root_files ? "There are no root files" : "")>;
+
+
+// 루트 파일과 FS가 모두 있는경우에 패딩 처리하는 부분
+// FS없이 루트 파일 부분만 있다면 2048로 올려 패딩할 필요는 없다
+if(PACKFSLS.FS_SEG_COUNT != 0 && root_files_size != 0) {
+    byte ROOT_FILES_PAD[GetAlign2048Count()] <bgcolor=cDkAqua>;    // assert: all bytes are 0    루트 파일 전체 크기(=지금까지 기록된 데이터)를 2048 단위에 맞춘다
+}
+
+
+// FileSet의 오프셋 기준 간접 정렬
+if (PACKFSLS.FS_SEG_COUNT > 0) {
+    local uint64 fs_seg_ofs_list[PACKFSLS.FS_SEG_COUNT];
+    local int fs_sorted_pos[PACKFSLS.FS_SEG_COUNT];
+    
+    // 정렬용 배열 초기화
+    for(i=0; i<PACKFSLS.FS_SEG_COUNT; i++) {
+        fs_seg_ofs_list[i] = PACKFSLS.FS_SEG_LIST[i].FS_ABSOLUTE_OFS;
+        fs_sorted_pos[i] = i;
+    }
+
+    // 공통 정렬 함수 호출
+    QuickSortOffsets(fs_seg_ofs_list, fs_sorted_pos, PACKFSLS.FS_SEG_COUNT);
+}
+
+// 정렬된 인덱스를 바탕으로 FileSet 구조체 매핑
+local uint32 FS_NAME_IDX;
+local uint64 FS_ABSOLUTE_OFS, FS_SIZE;
+local int fs_idx;
+
+for(i=0; i<PACKFSLS.FS_SEG_COUNT; i++) {
+    fs_idx = fs_sorted_pos[i];  // 정렬된 인덱스 호출
+    
+    FS_NAME_IDX = PACKFSLS.FS_SEG_LIST[fs_idx].NAME_IDX;
+    FS_ABSOLUTE_OFS = PACKFSLS.FS_SEG_LIST[fs_idx].FS_ABSOLUTE_OFS;
+    FS_SIZE = PACKFSLS.FS_SEG_LIST[fs_idx].FS_SIZE;
+    
+    FSeek(FS_ABSOLUTE_OFS);
+    
+    struct _FS {
+        // 스코프 문제로 comment에서 FS_NAME_IDX 참조하려면 구조체 안에 사본 만들어둬야함
+        local string tmp_fs_name = GetFnameFromNameIdx(FS_NAME_IDX);
+        
+        _ENDILTLE ENDILTLE;
+        Assert(Strcmp(ENDILTLE.SIGNATURE, "ENDILTLE") == 0, "The signature of the `ENDILTLE` table must be 'ENDILTLE'.");
+
+        _PACKFSHD PACKFSHD;
+        Assert(Strcmp(PACKFSHD.SIGNATURE, "PACKFSHD") == 0, "The signature of the `PACKFSHD` table must be 'PACKFSHD'.");
+
+        _GENESTRT GENESTRT;
+        Assert(Strcmp(GENESTRT.SIGNATURE, "GENESTRT") == 0, "The signature of the `GENESTRT` table must be 'GENESTRT'.");
+        
+        _GENEEOF GENEEOF;
+        Assert(Strcmp(GENEEOF.SIGNATURE, "GENEEOF ") == 0, "The signature of the `GENEEOF` table must be 'GENEEOF '.");
+        
+        struct _FS_FILE_LIST {
+            local int k = 0;
+            local uint32 FILE_NAME_IDX, COMPRESS_TYPE;
+            local uint64 FILE_OFS, FILE_SIZE, FILE_ZSIZE, real_size, padding_count;
+            
+            for(k=0; k<PACKFSHD.FILE_SEG_COUNT; k++) {
+                FILE_NAME_IDX = PACKFSHD.FS_FILE_SEG_LIST[k].NAME_IDX;
+                COMPRESS_TYPE = PACKFSHD.FS_FILE_SEG_LIST[k].COMPRESS_TYPE;
+                FILE_OFS = PACKFSHD.FS_FILE_SEG_LIST[k].FILE_OFS;
+                FILE_SIZE = PACKFSHD.FS_FILE_SEG_LIST[k].FILE_SIZE;
+                FILE_ZSIZE = PACKFSHD.FS_FILE_SEG_LIST[k].FILE_ZSIZE;
+                real_size = (COMPRESS_TYPE != 2) ? FILE_SIZE : FILE_ZSIZE;
+                
+                FSeek(FS_ABSOLUTE_OFS + FILE_OFS);  // 오프셋은 각 FS의 시작 지점을 기준으로 하는 상대 오프셋
+                
+                padding_count = GetFileSetFileBlockSize(real_size);
+                
+                struct _FS_FILE{
+                    local uint32 tmp_name_idx = FILE_NAME_IDX;
+                    
+                    byte data[real_size] <bgcolor=0x72bafb>;
+                    if(padding_count != 0) {
+                        byte padding[padding_count] <bgcolor=cLtAqua>;
+                    }
+                } file <comment=GetFileSetFnameFromNameIdx(parentof(parentof(this)).GENESTRT, tmp_name_idx)>;
+            }
+        } FS_FILES;
+        
+        if(!FEof()) {  // The last FS listed does not have any padding.
+            byte FS_PAD[GetFileSetPaddingCount(FS_SIZE)] <bgcolor=cAqua>;  // assert: all bytes are 0
+        }
+    } FileSet <comment=tmp_fs_name>;
+}
+
+// ==================================================================================
+
+
+
+Printf("The template execution is complete.\n");
