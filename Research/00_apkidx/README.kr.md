@@ -66,7 +66,7 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 | TABLE_SIZE | uint64 |  8   | Body의 크기로, 항상 `32`이다.                                                                                                                                |
 | unknown_1 | uint32 |  4   | 파일 버전으로 추측되지만 정확한 용도는 불명이며, 항상 `65536`이다.                                                                                           |
 | NAME_IDX | uint32 |  4   | 이 패키지 파일의 이름을 가리키는 인덱스이다.<br>`GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>ex) `data/data.apk`                                         |
-| ROOT_FILES_OFS | uint32 |  4   | Root Files 영역이 시작되는 지점의 절대 오프셋이다.<br>엔진이 실제로 이 값을 읽고 사용하는지는 불명이다.                                                    |
+| ROOT_FILES_OFS | uint32 |  4   | Root Files 영역이 시작되는 지점의 절대 오프셋이다.<br>값은 항상 `GENEEOF` 테이블이 끝나는 지점을 2048바이트에 맞춰 올린 오프셋이며, Root Files가 없는 apk에도 이 값이 들어간다.<br>엔진이 실제로 이 값을 사용하지는 않는 것으로 보인다.                                                    |
 | FS_PAD_TYPE | uint32 |  4   | File Set의 패딩을 몇 바이트로 정렬할지 지정하는 플래그이다. File Set이 없어도 이 값은 지정될 수 있다.<br>- `1`: 2048바이트 정렬<br>- `2`: 512바이트 정렬 |
 | HASH | byte[] |  16  | 아카이브의 무결성 검증을 위한 MD5 해시값으로 추정되나 엔진이 실제로 값을 읽는 것 같지는 않아 보인다.<br>임의의 값으로 채워 넣어도 문제 없다.                |
 
@@ -90,7 +90,7 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 |  COMPRESS_TYPE  | uchar |  1   | 세그먼트의 데이터가 파일일 때 압축 여부를 지정하는 플래그이다.<br>`IDENTIFIER`가 `1`이면 이 필드도 항상 `0`이다.<br>`IDENTIFIER`가 `0`이며, 데이터가 zlib으로 압축되어 있다면 이 필드의 값은 `2`이다. 압축이 안 되어 있다면 `0`이다.<br>즉, 이 필드의 값이 `0`이라는 것은 세그먼트가 디렉토리이거나 압축이 되지 않은 파일이라는 뜻이다. |
 |  unknown_1  | uint16  |  2   | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                                                                                                                                                       |
 |  NAME_IDX  |  uint32  |  4   | 세그먼트가 의미하는 파일/폴더의 이름이며, `GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>이때 문자열은 중간 경로 없이 항상 마지막 파일/폴더의 이름만 가진다.                                                                                                                                                                                |
-|  PACKAGE_NAME_IDX  |  uint32  |  4   | 세그먼트가 의미하는 파일/폴더가 속한 apk 파일의 경로를 의미한다.<br>ex) `data/data.apk`<br>기본적으로 현재 apk 파일의 이름이 들어가는 것으로 보이며, 만약 루트 파일이 다른 apk에 들어있는 경우 해당 apk의 이름이 된다(예를 들면 PCSG00214의 경우)                                                                                              |
+|  PACKAGE_NAME_IDX  |  uint32  |  4   | 세그먼트가 의미하는 파일이 들어 있는 apk 파일의 경로이며, `GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>ex) `data/data.apk`<br>apk 파일 안에서는 항상 자기 자신의 경로를 가리키는 `0`이다. 다른 apk 파일을 가리키는 경우는 여러 apk를 합친 idx 파일에서만 나타난다.<br>폴더 세그먼트의 경우 항상 `0`이며 의미 없는 값이다.                                                                                              |
 |  unknown_2  |  uint32  |  4   | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                                                                                                                                                       |
 
 여기까지가 세그먼트의 공통 필드이며, 다음 24바이트는 `IDENTIFIER` 필드의 값에 따라 다르게 읽어야 한다.  
@@ -119,9 +119,20 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 
 엔진은 이진 탐색을 이용해 세그먼트 리스트에서 특정 파일의 정보를 찾는다.  
 내부적으로는 `idx` 파일에서 조회하지만, idx 파일의 세그먼트 정보도 이 테이블의 세그먼트 정보를 바탕으로 생성되는 것이므로 여기서 정렬을 제대로 해야 한다.  
-먼저 첫번째 세그먼트는 빈 문자열인 `NAME_IDX=1`로 지정된 루트 세그먼트이다. `ENTRY_INDEX`는 `1`이다.  
-이후 각 깊이별로 폴더/파일 구분 없이 오직 이름만 기준으로 오름차순으로 세그먼트 리스트에 넣은 다음, 그중 폴더가 있다면 각 폴더에 대해 한 단계 들어가서 동일하게 세그먼트를 오름차순으로 배치한다.  
-단계 이동 시에는 `ENTRY_INDEX`를 보고 이동하므로 폴더의 방문 순서는 꼭 정렬된 순서일 필요는 없어 보이나, 굳이 임의의 순서로 배치할 필요도 없어 보인다.  
+먼저 첫번째 세그먼트는 빈 문자열인 `NAME_IDX=1`로 지정된 루트 세그먼트이다. 루트에 자식이 있다면 `ENTRY_INDEX`는 `1`이고, 자식이 하나도 없다면 `ENTRY_INDEX`와 `ENTRY_COUNT`가 모두 `0`이다.  
+같은 폴더에 속한 파일/폴더는 구분 없이 오직 이름의 바이트 순서(대문자가 소문자보다 앞에 온다)를 기준으로 오름차순 정렬하여 연속된 세그먼트로 배치한다.  
+세그먼트 번호는 깊이 우선 방식으로 매긴다. 어떤 폴더의 자식들을 한 블록으로 배치한 다음, 그 자식들 중 폴더를 정렬된 순서대로 하나씩 들어가서 다음 빈 번호부터 같은 방식으로 자식 블록을 배치한다.  
+
+```
+next = 1
+assign(dir):
+    dir.ENTRY_INDEX = next, dir.ENTRY_COUNT = 자식 개수
+    이름순으로 정렬된 자식들을 next번부터 차례로 배치하고, next += 자식 개수
+    자식들 중 폴더를 같은 순서로 하나씩 assign(폴더)
+assign(루트)
+```
+
+단계 이동 시에는 `ENTRY_INDEX`를 보고 이동하므로 엔진 입장에서는 이 번호 규칙을 꼭 지킬 필요는 없어 보이나, 원본 파일들은 모두 이 규칙을 따른다.  
 하지만 최소한 같은 부모의 파일/폴더 간에는 이름 기준 정렬이 되어 있어야 한다.
 
 #### PACKFSLS
@@ -144,8 +155,8 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 ##### FS_SEGMENT
 |    이름    | 자료형 | 크기/길이 | 설명                                                                                                                                                              |
 |:----------:|:------:|:----:|:------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|  NAME_IDX  | uint32 |  4   | 세그먼트가 의미하는 파일/폴더의 이름이며, `GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>이때 문자열은 중간 경로 없이 항상 마지막 파일/폴더의 이름만 가진다. |
-|  PACKAGE_NAME_IDX  | uint32 |  4   | 세그먼트가 의미하는 파일/폴더가 속한 apk 파일의 경로를 의미한다.<br>ex) `data/data.apk`<br>`TOC_SEGMENT.PACKAGE_NAME_IDX`와 설명은 동일하다.                  |
+|  NAME_IDX  | uint32 |  4   | 세그먼트가 의미하는 File Set의 이름이며, `GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>ex) `eventscript` |
+|  PACKAGE_NAME_IDX  | uint32 |  4   | 세그먼트가 의미하는 File Set이 들어 있는 apk 파일의 경로이며, `GENESTRT.STRING_LIST`의 인덱스를 의미한다.<br>ex) `data/data.apk`<br>apk 파일 안에서는 항상 자기 자신의 경로를 가리키는 `0`이다. 다른 apk 파일을 가리키는 경우는 여러 apk를 합친 idx 파일에서만 나타난다.                  |
 |  FS_ABSOLUTE_OFS  | uint64 |  8   | 세그먼트가 의미하는 File Set이 위치하는 파일상 절대 오프셋 값이다.                                                                                              |
 |  FS_SIZE  | uint64 |  8   | 세그먼트가 의미하는 File Set의 전체 크기(바이트)이다.                                                                                                           |
 |  FS_HASH  | byte[] |  16  | File Set 전체에 대한 MD5 해시 결과이다.<br>범위: `md5([FS_ABSOLUTE_OFS, FS_ABSOLUTE_OFS+FS_SIZE))`                                                              |
@@ -201,12 +212,12 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 |      이름       |    자료형     | 크기/길이 | 설명                                                                                                                                                                                                         |
 |:---------------:|:-------------:|:----:|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 |    SIGNATURE    |    char[]     |  8   | 테이블 시그니처로, 항상 `PACKFSHD`이다.                                                                                                                                                                    |
-|   TABLE_SIZE    |    uint64     |  8   | Body의 크기로, 각 필드의 크기(바이트)를 아래 식에 넣어 계산할 수 있다.<br>`align16(sizeof(unknown_1) + sizeof(FILE_SEG_SIZE) + sizeof(FILE_SEG_COUNT) + sizeof(FS_FILE_SEG_OFS) + sizeof(GENESTRT_OFS) + sizeof(unknown_2) + sizeof(unknown_3) + sizeof(unknown_4) + (FILE_SEG_SIZE * FILE_SEG_COUNT))` |
+|   TABLE_SIZE    |    uint64     |  8   | Body의 크기로, 각 필드의 크기(바이트)를 아래 식에 넣어 계산할 수 있다.<br>`align16(sizeof(unknown_1) + sizeof(FILE_SEG_SIZE) + sizeof(FILE_SEG_COUNT) + sizeof(FS_FILE_SEG_LIST_OFS) + sizeof(GENEEOF_OFS) + sizeof(unknown_2) + sizeof(unknown_3) + sizeof(unknown_4) + (FILE_SEG_SIZE * FILE_SEG_COUNT))` |
 |    unknown_1    |    uint32     |      4       | 용도 불명의 필드이며, 값은 항상 `65536`이다.                                                                                                                                                               |
 |  FILE_SEG_SIZE  |    uint32     |      4       | `FS_FILE_SEG` 한 개의 크기를 나타내며, `32`로 고정값이다.                                                                                                                                                |
 | FILE_SEG_COUNT  |    uint32     |      4       | `FS_FILE_SEG_LIST`에 포함된 세그먼트 개수를 나타낸다.                                                                                                                                                      |
-| FS_FILE_SEG_OFS |    uint32     |      4       | `PACKFSHD.unknown_1`의 시작점을 기준으로 `FS_FILE_SEG_LIST`의 시작 지점이 몇 바이트 떨어진 곳에 있는지 나타내는 오프셋이다.<br>값은 항상 `32`이다.                                                   |
-|  GENESTRT_OFS   |    uint32     |      4       | 현재 FS의 처음을 기준으로 이 FS의 `GENESTRT` 테이블의 시작 오프셋이다.<br>실제로 사용되는 값은 아닌 것으로 보인다.<br>계산식은 다음과 같다: `sizeof(ENDILTLE) + sizeof(PACKFSHD) + sizeof(GENESTRT)` |
+| FS_FILE_SEG_LIST_OFS |    uint32     |      4       | `PACKFSHD.unknown_1`의 시작점을 기준으로 `FS_FILE_SEG_LIST`의 시작 지점이 몇 바이트 떨어진 곳에 있는지 나타내는 오프셋이다.<br>값은 항상 `32`이다.                                                   |
+|  GENEEOF_OFS   |    uint32     |      4       | 현재 FS의 처음(`ENDILTLE`)을 기준으로 이 FS의 `GENEEOF` 테이블의 시작 오프셋이다.<br>실제로 사용되는 값은 아닌 것으로 보인다.<br>계산식은 다음과 같다: `sizeof(ENDILTLE) + sizeof(PACKFSHD) + sizeof(GENESTRT)` |
 |    unknown_2    |    uint32     |      4       | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                   |
 |    unknown_3    |    uint32     |      4       | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                   |
 |    unknown_4    |    uint32     |      4       | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                   |
@@ -216,12 +227,12 @@ Artdink 사의 전용 포맷으로 보이는 apk 파일의 바이너리 파일 �
 ##### FS_FILE_SEG
 |     이름      | 자료형 | 크기/길이 | 설명                                                                                                                                                                                                                                                                                         |
 |:-------------:|:------:|:---------:|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|   NAME_IDX    | uint32 |     4     | 세그먼트가 의미하는 파일의 이름이며, 현재 FS의 `GENESTRT.STRING_LIST`내의 인덱스를 의미한다.<br>이때 문자열은 중간 경로 없이 항상 마지막 파일의 이름만 가진다.                                                                                                                          |
+|   NAME_IDX    | uint32 |     4     | 세그먼트가 의미하는 파일의 이름이며, 현재 FS의 `GENESTRT.STRING_LIST`내의 인덱스를 의미한다.<br>`PACKTOC`과 달리 FS에는 폴더 세그먼트가 없으므로, 문자열은 FS 안에서의 전체 상대 경로를 가진다. 이때 경로에 FS 이름은 포함되지 않는다.<br>ex) `scripts/all_001_001.asb`                                                                                                                          |
 | COMPRESS_TYPE |  uchar  |     1     | 파일의 압축 여부를 지정하는 플래그이다.<br>데이터가 zlib으로 압축되어 있다면 이 필드의 값은 `2`이다. 압축이 안 되어 있다면 `0`이다. |
 |   unknown_1   | uchar  |     1     | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                                                                                                   |
 |   unknown_2   | uchar |     1     | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                                                                                                   |
 |   unknown_3   | uchar |     1     | 용도 불명의 필드이며, 값은 항상 `0`이다.                                                                                                                                                                                                                                                   |
-|   FILE_OFS    | uint64 |  8   | `files` 영역의 시작점을 기준으로 하는 해당 파일이 시작하는 오프셋이다.                                                                                                                                                                                                                     |
+|   FILE_OFS    | uint64 |  8   | 현재 FS의 처음(`ENDILTLE`)을 기준으로 하는 해당 파일이 시작하는 오프셋이다.<br>`files` 영역의 시작점 기준이 아님에 주의한다. 따라서 첫 번째 파일의 값은 `GENEEOF` 테이블이 끝나는 지점과 같다.                                                                                                                                                                                                                     |
 |   FILE_SIZE   | uint64 |  8   | 파일의 원본(압축 해제 후) 크기(바이트)이다.<br>`COMPRESS_TYPE`가 `2`인 압축된 파일이라도 이 필드에는 압축 해제 후의 크기가 들어가며, `0`이 되지 않는다.                                                                                                                                                                                               |
 |  FILE_ZSIZE   | uint64  |  8   | `COMPRESS_TYPE`가 `2`일 경우 압축된 상태로 저장된 데이터의 크기(바이트)이다. 압축이 안 된 파일이라면 이 필드는 `0`이다.<br>즉, 파일 데이터가 실제로 차지하는 크기는 압축된 파일이면 `FILE_ZSIZE`, 압축이 안 된 파일이면 `FILE_SIZE`이다.                                                                                                                                                                                   |
 

@@ -150,12 +150,12 @@ struct _GENEEOF {
 // ===================================== FS-specific structure =====================================
 
 struct _FS_FILE_SEG {
-    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFileSetFnameFromNameIdx(parentof(parentof(parentof(this))).GENESTRT, this)>;
+    uint32 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetFileSetFnameFromNameIdx(parentof(parentof(parentof(this))).GENESTRT, this)>;  // full relative path in this FS (without the FS name)
     uchar COMPRESS_TYPE <fgcolor=cWhite, bgcolor=cDkBlue, comment=MakeCompressTypeComment(this)>;  // assert: value must be 0 or 2
     uchar unknown_1 <bgcolor=cLtGray>;  // assert: 0
     uchar unknown_2 <bgcolor=cLtGray>;  // assert: 0
     uchar unknown_3 <bgcolor=cLtGray>;  // assert: 0
-    uint64 FILE_OFS <format=hex, bgcolor=0xa2c299>;
+    uint64 FILE_OFS <format=hex, bgcolor=0xa2c299>;  // Local Offset, base: start of this FS (ENDILTLE), not the start of the files area
     uint64 FILE_SIZE <bgcolor=0x97d1ad>;  // assert: FILE_SIZE > 0   Original (decompressed) size, also when COMPRESS_TYPE==2
     uint64 FILE_ZSIZE <bgcolor=0xb8fedb>;  // assert: if COMPRESS_TYPE==2 then FILE_ZSIZE > 0 (stored compressed size) else 0
 };
@@ -163,13 +163,13 @@ struct _FS_FILE_SEG {
 // PACK File Set HeaDer
 struct _PACKFSHD {
     uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSHD
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(32 + (FILE_SEG_SIZE * FILE_SEG_COUNT))   32 = sizeof(unknown_1 + FILE_SEG_SIZE + FILE_SEG_COUNT + FS_FILE_SEG_LIST_OFS + GENESTRT_OFS + unknown_2 + unknown_3 + unknown_4)
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(32 + (FILE_SEG_SIZE * FILE_SEG_COUNT))   32 = sizeof(unknown_1 + FILE_SEG_SIZE + FILE_SEG_COUNT + FS_FILE_SEG_LIST_OFS + GENEEOF_OFS + unknown_2 + unknown_3 + unknown_4)
     
     uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 65536
     uint32 FILE_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 32
     uint32 FILE_SEG_COUNT <bgcolor=cPurple>;
     uint32 FS_FILE_SEG_LIST_OFS <bgcolor=cLtYellow>;  // assert: 32   Local Offset, base: start of PACKFSHD.unknown_1
-    uint32 GENESTRT_OFS <bgcolor=cLtGray>;  // size(ENDILTLE) + size(PACKFSHD) + size(GENESTRT), 엔진은 미사용
+    uint32 GENEEOF_OFS <bgcolor=cLtGray>;  // Local Offset of GENEEOF, base: start of this FS (ENDILTLE) = size(ENDILTLE) + size(PACKFSHD) + size(GENESTRT), 엔진은 미사용
     uint32 unknown_2 <bgcolor=cLtGray>;  // assert: 0
     uint32 unknown_3 <bgcolor=cLtGray>;  // assert: 0
     uint32 unknown_4 <bgcolor=cLtGray>;  // assert: 0
