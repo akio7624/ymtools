@@ -163,7 +163,7 @@ struct _FS_FILE_SEG {
 // PACK File Set HeaDer
 struct _PACKFSHD {
     char SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSHD
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: unknown_1 + FILE_SEG_SIZE + FILE_SEG_COUNT + FS_FILE_SEG_LIST_OFS + GENESTRT_OFS + unknown_2 + unknown_3 + unknown_4 + (FILE_SEG_SIZE * FILE_SEG_COUNT)
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(unknown_1 + FILE_SEG_SIZE + FILE_SEG_COUNT + FS_FILE_SEG_LIST_OFS + GENESTRT_OFS + unknown_2 + unknown_3 + unknown_4 + (FILE_SEG_SIZE * FILE_SEG_COUNT))
     
     uint32 unknown_1 <bgcolor=cLtGray>;  // assert: 65536
     uint32 FILE_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 32
