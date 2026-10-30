@@ -2,6 +2,5 @@
 .venv
 build
 dist
-main.spec
 
 *.pyc

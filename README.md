@@ -4,3 +4,5 @@
 ---
 
 see kr readme
+
+develop on python 3.14
