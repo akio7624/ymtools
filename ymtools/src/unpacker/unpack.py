@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ymtools.src.structure.apk import APK
+
 
 class Unpacker:
     def __init__(self, input_path: Path, output_dir: Path, combine_fs: bool, worker_num: int) -> None:
@@ -9,4 +11,7 @@ class Unpacker:
         self.WORKER_NUM = worker_num
 
     def run(self) -> int:
+        apk = APK.read_apk(self.INPUT_PATH)
+        # TODO ...
+
         return 0
