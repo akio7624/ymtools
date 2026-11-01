@@ -225,7 +225,6 @@ class APK:
         return math.ceil(n / 16) * 16
 
     def _sig(self, signature: bytes) -> str:
-        # b'PACKHEDR' -> PACKHEDR, unprintable bytes -> \xNN
         return "".join(chr(c) if 32 <= c < 127 else f"\\x{c:02x}" for c in signature)
 
     def validate(self) -> list[str]:
@@ -266,6 +265,7 @@ class APK:
                 log.warning(f"Value of PACKTOC.unknown_1 may be 0")
             if len(self._PACKTOC.TOC_SEG_LIST) != self._PACKTOC.TOC_SEG_COUNT:
                 violations.append(f"Length of PACKTOC.TOC_SEG_LIST must be {self._PACKTOC.TOC_SEG_COUNT}, current: {len(self._PACKTOC.TOC_SEG_LIST)}")
+            violations += self._validate_toc_segments()
             violations += self._validate_toc_order()
 
         # check for PACKFSLS
@@ -283,6 +283,7 @@ class APK:
                 log.warning("Value of PACKFSLS.unknown_1 may be 0")
             if len(self._PACKFSLS.FS_SEG_LIST) != self._PACKFSLS.FS_SEG_COUNT:
                 violations.append(f"Length of PACKFSLS.FS_SEG_LIST must be {self._PACKFSLS.FS_SEG_COUNT}, current: {len(self._PACKFSLS.FS_SEG_LIST)}")
+            violations += self._validate_fs_segments()
 
         # check for GENESTRT
         if self._GENESTRT.SIGNATURE != b"GENESTRT":
@@ -318,6 +319,56 @@ class APK:
 
         return violations
 
+    def _validate_toc_segments(self) -> list[str]:
+        violations: list[str] = []
+        segs = self._PACKTOC.TOC_SEG_LIST
+        string_count = len(self._GENESTRT.STRING_LIST)
+
+        for i, seg in enumerate(segs):
+            if seg.IDENTIFIER not in [0, 1]:
+                violations.append(f"TOC_SEG_LIST[{i}].IDENTIFIER must be 0 or 1, current: {seg.IDENTIFIER}")
+                continue
+            if seg.COMPRESS_TYPE not in [0, 2]:
+                violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 or 2, current: {seg.COMPRESS_TYPE}")
+            if seg.unknown_1 != 0:
+                log.warning("Value of TOC_SEG_LIST[%d].unknown_1 may be 0, current: %s", i, seg.unknown_1)
+            if seg.NAME_IDX >= string_count:
+                violations.append(f"TOC_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
+            if seg.PACKAGE_NAME_IDX != 0:
+                log.warning("Value of TOC_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
+            if seg.unknown_2 != 0:
+                log.warning("Value of TOC_SEG_LIST[%d].unknown_2 may be 0, current: %s", i, seg.unknown_2)
+
+            if seg.IDENTIFIER == 1:  # Directory
+                if seg.COMPRESS_TYPE != 0:
+                    violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 for a directory, current: {seg.COMPRESS_TYPE}")
+                if seg.ENTRY_INDEX + seg.ENTRY_COUNT > len(segs):
+                    violations.append(f"Children of TOC_SEG_LIST[{i}] are out of range: [{seg.ENTRY_INDEX}, {seg.ENTRY_INDEX + seg.ENTRY_COUNT}) of {len(segs)}")
+                if seg.unused_1 != 0:
+                    log.warning("Value of TOC_SEG_LIST[%d].unused_1 may be 0, current: %s", i, seg.unused_1)
+                if seg.unused_2 != 0:
+                    log.warning("Value of TOC_SEG_LIST[%d].unused_2 may be 0, current: %s", i, seg.unused_2)
+            else:  # File
+                if seg.FILE_SIZE <= 0:
+                    violations.append(f"TOC_SEG_LIST[{i}].FILE_SIZE must be greater than 0, current: {seg.FILE_SIZE}")
+                if seg.COMPRESS_TYPE == 2 and seg.FILE_ZSIZE <= 0:
+                    violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be greater than 0 for a compressed file, current: {seg.FILE_ZSIZE}")
+                if seg.COMPRESS_TYPE == 0 and seg.FILE_ZSIZE != 0:
+                    violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be 0 for an uncompressed file, current: {seg.FILE_ZSIZE}")
+        return violations
+
+    def _validate_fs_segments(self) -> list[str]:
+        violations: list[str] = []
+        string_count = len(self._GENESTRT.STRING_LIST)
+
+        for i, seg in enumerate(self._PACKFSLS.FS_SEG_LIST):
+            if seg.NAME_IDX >= string_count:
+                violations.append(f"FS_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
+            if seg.PACKAGE_NAME_IDX != 0:
+                log.warning("Value of FS_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
+            # TODO FS_HASH is not checked here since it requires reading the data of the FS
+        return violations
+
     def _validate_toc_order(self) -> list[str]:
         violations: list[str] = []
         segs = self._PACKTOC.TOC_SEG_LIST
@@ -327,6 +378,8 @@ class APK:
             if seg.IDENTIFIER != 1 or seg.ENTRY_COUNT < 2:  # only directories with 2+ children
                 continue
             children = segs[seg.ENTRY_INDEX: seg.ENTRY_INDEX + seg.ENTRY_COUNT]
+            if any(c.NAME_IDX >= len(strings) for c in children):  # reported by _validate_toc_segments()
+                continue
             names = [strings[c.NAME_IDX].encode("utf-8") for c in children]
             if any(a >= b for a, b in zip(names, names[1:])):
                 violations.append(f"Children of TOC_SEG_LIST[{i}] are not sorted by name")
