@@ -1,5 +1,8 @@
 import argparse
 import logging
+import os
+import platform
+import sys
 from pathlib import Path
 
 from ymtools.src import const
@@ -15,6 +18,23 @@ LOG_LEVELS: dict[str, int | None] = {
     "err": logging.ERROR,
     "no": None,
 }
+
+
+def print_env(args: argparse.Namespace) -> None:
+    log.debug("[Environment]")
+    log.debug(f"  ymtools   : v{const.VERSION}")
+    log.debug(f"  python    : {platform.python_version()} ({platform.python_implementation()})")
+    log.debug(f"  platform  : {platform.platform()} / {platform.machine()}")
+    log.debug(f"  cpu count : {os.cpu_count()}")
+    log.debug(f"  frozen    : {getattr(sys, 'frozen', False)}")
+    log.debug(f"  executable: {sys.executable}")
+    log.debug(f"  cwd       : {Path.cwd()}")
+    log.debug(f"  argv      : {sys.argv}")
+
+    log.debug("[Arguments]")
+    for key, value in sorted(vars(args).items()):
+        if key != "handler":
+            log.debug(f"  {key}: {value!r}")
 
 
 def run_unpack(args: argparse.Namespace) -> int:
@@ -52,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         log.info(f"ymtools v{const.VERSION} by akio7624")
         if args.verbose and args.log not in (None, "debug"):
             log.warning(f"-v/--verbose is ignored because --log {args.log} is specified")
+        if log_level == "debug":
+            print_env(args)
 
         return args.handler(args)
     finally:
