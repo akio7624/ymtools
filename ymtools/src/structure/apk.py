@@ -4,7 +4,7 @@ import struct
 from pathlib import Path
 
 from ymtools.src.binutils.BinaryReader import BinaryReader
-from ymtools.src.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_SEGMENT
+from ymtools.src.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_FILE_SEG, FS_SEGMENT
 from ymtools.src.structure.utils import get_align16_count
 
 __all__ = ["APK"]
@@ -150,49 +150,7 @@ class APK:
 
             # ====================== GENESTRT ======================
             log.info(f"Processing table GENESTRT")
-            genestrt_ofs = br.tell()
-            string_count_ofs = genestrt_ofs + 8 + 8
-
-            # read string_count first for iter_struct()
-            br.seek(string_count_ofs)
-            string_count = br.read_uint32()
-            br.skip(4)
-            string_list_ofs = genestrt_ofs + 8 + 8 + br.read_uint32()
-
-            # parse string_ofs_list
-            string_ofs_list_ofs = genestrt_ofs + 8 + 8 + 4 + 4 + 4 + 4
-            br.seek(string_ofs_list_ofs)
-            string_ofs_list = [x[0] for x in br.iter_struct(struct.Struct("<I"), string_count)]
-            string_ofs_list_pad = br.read_bytes(get_align16_count(br.tell()))
-
-            # parse string_list
-            string_list: list[str] = []
-            br.seek(string_list_ofs)
-            for _ in range(string_count):
-                buf: bytearray = bytearray()
-                while True:
-                    c: bytes = br.read_bytes(1)
-                    if c == b'\x00':
-                        break
-                    buf.extend(c)
-                string_list.append(buf.decode("utf-8"))
-            string_list_end = br.tell()
-            string_list_pad = br.read_bytes(get_align16_count(string_list_end))
-
-            br.seek(genestrt_ofs)
-            genestrt = GENESTRT(
-                SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
-                TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
-                STRING_COUNT=br.read_struct(struct.Struct("<I"))[0],
-                STRING_OFS_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
-                STRING_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
-                TABLE_SIZE_2=br.read_struct(struct.Struct("<I"))[0],
-                STRING_OFS_LIST=string_ofs_list,
-                STRING_OFS_LIST_PAD=string_ofs_list_pad,
-                STRING_LIST=string_list,
-                STRING_LIST_PAD=string_list_pad,
-            )
-            br.seek(string_list_end + len(string_list_pad))  # skip STRING_LIST and its padding
+            genestrt = cls._read_genestrt(br)
 
             # ====================== GENEEOF ======================
             log.info(f"Processing table GENEEOF")
@@ -201,6 +159,79 @@ class APK:
                 TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0]
             )
 
+            # ====================== File Set List ======================
+            file_sets: list[FILE_SET] = []
+            for i, fs_seg in enumerate(packfsls.FS_SEG_LIST):
+                log.info(f"Processing FILE_SET[{i}]")
+                br.seek(fs_seg.FS_ABSOLUTE_OFS)
+
+                # ---------------------- ENDILTLE ----------------------
+                fs_endiltle = ENDILTLE(
+                    SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+                    TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0]
+                )
+
+                # ---------------------- PACKFSHD ----------------------
+                packfshd_ofs = br.tell()
+                file_seg_count_ofs = packfshd_ofs + 8 + 8 + 4 + 4
+                fs_file_seg_list_ofs = packfshd_ofs + 8 + 8 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4
+
+                # read file_seg_count first for iter_struct()
+                br.seek(file_seg_count_ofs)
+                file_seg_count = br.read_uint32()
+
+                # then read fs_file_seg_list
+                fs_file_seg_list: list[FS_FILE_SEG] = []
+                br.seek(fs_file_seg_list_ofs)
+                for tp in br.iter_struct(struct.Struct("<IccccQQQ"), file_seg_count):
+                    NAME_IDX, COMPRESS_TYPE, unknown_1, unknown_2, unknown_3, FILE_OFS, FILE_SIZE, FILE_ZSIZE = tp
+
+                    fs_file_seg_list.append(FS_FILE_SEG(
+                        NAME_IDX=NAME_IDX,
+                        COMPRESS_TYPE=int.from_bytes(COMPRESS_TYPE),
+                        unknown_1=int.from_bytes(unknown_1),
+                        unknown_2=int.from_bytes(unknown_2),
+                        unknown_3=int.from_bytes(unknown_3),
+                        FILE_OFS=FILE_OFS,
+                        FILE_SIZE=FILE_SIZE,
+                        FILE_ZSIZE=FILE_ZSIZE,
+                    ))
+
+                # go to start of PACKFSHD
+                br.seek(packfshd_ofs)
+                fs_packfshd = PACKFSHD(
+                    SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+                    TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+                    unknown_1=br.read_struct(struct.Struct("<I"))[0],
+                    FILE_SEG_SIZE=br.read_struct(struct.Struct("<I"))[0],
+                    FILE_SEG_COUNT=br.read_struct(struct.Struct("<I"))[0],
+                    FS_FILE_SEG_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+                    GENEEOF_OFS=br.read_struct(struct.Struct("<I"))[0],
+                    unknown_2=br.read_struct(struct.Struct("<I"))[0],
+                    unknown_3=br.read_struct(struct.Struct("<I"))[0],
+                    unknown_4=br.read_struct(struct.Struct("<I"))[0],
+                    FS_FILE_SEG_LIST=fs_file_seg_list,
+                )
+                br.skip(fs_packfshd.FILE_SEG_SIZE * fs_packfshd.FILE_SEG_COUNT)
+                br.skip(get_align16_count(br.tell()))
+
+                # ---------------------- GENESTRT ----------------------
+                fs_genestrt = cls._read_genestrt(br)
+
+                # ---------------------- GENEEOF ----------------------
+                fs_geneeof = GENEEOF(
+                    SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+                    TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0]
+                )
+
+                file_sets.append(FILE_SET(
+                    SEGMENT=fs_seg,
+                    FS_ENDILTLE=fs_endiltle,
+                    FS_PACKFSHD=fs_packfshd,
+                    FS_GENESTRT=fs_genestrt,
+                    FS_GENEEOF=fs_geneeof,
+                ))
+
         apk = cls(
             endiltle=endiltle,
             packhedr=packhedr,
@@ -208,7 +239,7 @@ class APK:
             packfsls=packfsls,
             genestrt=genestrt,
             geneeof=geneeof,
-            file_sets=[]
+            file_sets=file_sets
         )
 
         violations = apk.validate()
@@ -221,6 +252,54 @@ class APK:
 
         return apk
 
+    @staticmethod
+    def _read_genestrt(br: BinaryReader) -> GENESTRT:
+        """Read the GENESTRT table that starts at the current position. The reader is left right after the table."""
+        genestrt_ofs = br.tell()
+        string_count_ofs = genestrt_ofs + 8 + 8
+
+        # read string_count first for iter_struct()
+        br.seek(string_count_ofs)
+        string_count = br.read_uint32()
+        br.skip(4)
+        string_list_ofs = genestrt_ofs + 8 + 8 + br.read_uint32()
+
+        # parse string_ofs_list
+        string_ofs_list_ofs = genestrt_ofs + 8 + 8 + 4 + 4 + 4 + 4
+        br.seek(string_ofs_list_ofs)
+        string_ofs_list = [x[0] for x in br.iter_struct(struct.Struct("<I"), string_count)]
+        string_ofs_list_pad = br.read_bytes(get_align16_count(br.tell()))
+
+        # parse string_list
+        string_list: list[str] = []
+        br.seek(string_list_ofs)
+        for _ in range(string_count):
+            buf: bytearray = bytearray()
+            while True:
+                c: bytes = br.read_bytes(1)
+                if c == b'\x00':
+                    break
+                buf.extend(c)
+            string_list.append(buf.decode("utf-8"))
+        string_list_end = br.tell()
+        string_list_pad = br.read_bytes(get_align16_count(string_list_end))
+
+        br.seek(genestrt_ofs)
+        genestrt = GENESTRT(
+            SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+            TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+            STRING_COUNT=br.read_struct(struct.Struct("<I"))[0],
+            STRING_OFS_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+            STRING_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+            TABLE_SIZE_2=br.read_struct(struct.Struct("<I"))[0],
+            STRING_OFS_LIST=string_ofs_list,
+            STRING_OFS_LIST_PAD=string_ofs_list_pad,
+            STRING_LIST=string_list,
+            STRING_LIST_PAD=string_list_pad,
+        )
+        br.seek(string_list_end + len(string_list_pad))  # skip STRING_LIST and its padding
+        return genestrt
+
     def _align16_size(self, n: int) -> int:
         return math.ceil(n / 16) * 16
 
@@ -231,11 +310,7 @@ class APK:
         violations: list[str] = []
 
         # check for ENDILTLE
-        if self._ENDILTLE.SIGNATURE != b"ENDILTLE":
-            violations.append(f"ENDILTLE.SIGNATURE must be 'ENDILTLE', current: '{self._sig(self._ENDILTLE.SIGNATURE)}'")
-        else:
-            if self._ENDILTLE.TABLE_SIZE != 0:
-                violations.append("Size of ENDILTLE table must be 0")
+        violations += self._validate_endiltle(self._ENDILTLE, "ENDILTLE")
 
         # check for PACKHEDR
         if self._PACKHEDR.SIGNATURE != b"PACKHEDR":
@@ -286,37 +361,129 @@ class APK:
             violations += self._validate_fs_segments()
 
         # check for GENESTRT
-        if self._GENESTRT.SIGNATURE != b"GENESTRT":
-            violations.append(f"GENESTRT.SIGNATURE must be 'GENESTRT', current: '{self._sig(self._GENESTRT.SIGNATURE)}'")
-        else:
-            string_list_size = sum(len(s.encode("utf-8")) + 1 for s in self._GENESTRT.STRING_LIST)  # +1 for null
-            string_list_ofs = self._align16_size(4 + 4 + 4 + 4 + (4 * self._GENESTRT.STRING_COUNT))
-            expected_table_size = self._align16_size(string_list_ofs + string_list_size)
-
-            if self._GENESTRT.TABLE_SIZE != expected_table_size:
-                violations.append(f"Size of GENESTRT table must be {expected_table_size}, current: {self._GENESTRT.TABLE_SIZE}")
-            if self._GENESTRT.STRING_OFS_LIST_OFS != 16:
-                violations.append(f"Offset of GENESTRT.STRING_OFS_LIST_OFS must be 16, current: {self._GENESTRT.STRING_OFS_LIST_OFS}")
-            if self._GENESTRT.STRING_LIST_OFS != string_list_ofs:
-                violations.append(f"Offset of GENESTRT.STRING_LIST_OFS must be {string_list_ofs}, current: {self._GENESTRT.STRING_LIST_OFS}")
-            if self._GENESTRT.TABLE_SIZE_2 != self._GENESTRT.TABLE_SIZE:
-                log.warning(f"Value of GENESTRT.TABLE_SIZE_2 may be equal to TABLE_SIZE({self._GENESTRT.TABLE_SIZE}), current: {self._GENESTRT.TABLE_SIZE_2}")
-            if len(self._GENESTRT.STRING_OFS_LIST) != self._GENESTRT.STRING_COUNT:
-                violations.append(f"Length of GENESTRT.STRING_OFS_LIST must be {self._GENESTRT.STRING_COUNT}, current: {len(self._GENESTRT.STRING_OFS_LIST)}")
-            if any(self._GENESTRT.STRING_OFS_LIST_PAD):
-                violations.append("All bytes of GENESTRT.STRING_OFS_LIST_PAD must be 0")
-            if len(self._GENESTRT.STRING_LIST) != self._GENESTRT.STRING_COUNT:
-                violations.append(f"Length of GENESTRT.STRING_LIST must be {self._GENESTRT.STRING_COUNT}, current: {len(self._GENESTRT.STRING_LIST)}")
-            if any(self._GENESTRT.STRING_LIST_PAD):
-                violations.append("All bytes of GENESTRT.STRING_LIST_PAD must be 0")
+        violations += self._validate_genestrt(self._GENESTRT, "GENESTRT")
 
         # check for GENEEOF
-        if self._GENEEOF.SIGNATURE != b"GENEEOF ":
-            violations.append(f"GENEEOF.SIGNATURE must be 'GENEEOF ', current: '{self._sig(self._GENEEOF.SIGNATURE)}'")
-        else:
-            if self._GENEEOF.TABLE_SIZE != 0:
-                violations.append(f"Size of GENEEOF table must be 0, current: {self._GENEEOF.TABLE_SIZE}")
+        violations += self._validate_geneeof(self._GENEEOF, "GENEEOF")
 
+        # check for File Sets
+        violations += self._validate_file_sets()
+
+        return violations
+
+    def _validate_endiltle(self, endiltle: ENDILTLE, name: str) -> list[str]:
+        violations: list[str] = []
+        if endiltle.SIGNATURE != b"ENDILTLE":
+            violations.append(f"{name}.SIGNATURE must be 'ENDILTLE', current: '{self._sig(endiltle.SIGNATURE)}'")
+        else:
+            if endiltle.TABLE_SIZE != 0:
+                violations.append(f"Size of {name} table must be 0, current: {endiltle.TABLE_SIZE}")
+        return violations
+
+    def _validate_genestrt(self, genestrt: GENESTRT, name: str) -> list[str]:
+        violations: list[str] = []
+        if genestrt.SIGNATURE != b"GENESTRT":
+            violations.append(f"{name}.SIGNATURE must be 'GENESTRT', current: '{self._sig(genestrt.SIGNATURE)}'")
+        else:
+            string_list_size = sum(len(s.encode("utf-8")) + 1 for s in genestrt.STRING_LIST)  # +1 for null
+            string_list_ofs = self._align16_size(4 + 4 + 4 + 4 + (4 * genestrt.STRING_COUNT))
+            expected_table_size = self._align16_size(string_list_ofs + string_list_size)
+
+            if genestrt.TABLE_SIZE != expected_table_size:
+                violations.append(f"Size of {name} table must be {expected_table_size}, current: {genestrt.TABLE_SIZE}")
+            if genestrt.STRING_OFS_LIST_OFS != 16:
+                violations.append(f"Offset of {name}.STRING_OFS_LIST_OFS must be 16, current: {genestrt.STRING_OFS_LIST_OFS}")
+            if genestrt.STRING_LIST_OFS != string_list_ofs:
+                violations.append(f"Offset of {name}.STRING_LIST_OFS must be {string_list_ofs}, current: {genestrt.STRING_LIST_OFS}")
+            if genestrt.TABLE_SIZE_2 != genestrt.TABLE_SIZE:
+                log.warning("Value of %s.TABLE_SIZE_2 may be equal to TABLE_SIZE(%d), current: %d", name, genestrt.TABLE_SIZE, genestrt.TABLE_SIZE_2)
+            if len(genestrt.STRING_OFS_LIST) != genestrt.STRING_COUNT:
+                violations.append(f"Length of {name}.STRING_OFS_LIST must be {genestrt.STRING_COUNT}, current: {len(genestrt.STRING_OFS_LIST)}")
+            if any(genestrt.STRING_OFS_LIST_PAD):
+                violations.append(f"All bytes of {name}.STRING_OFS_LIST_PAD must be 0")
+            if len(genestrt.STRING_LIST) != genestrt.STRING_COUNT:
+                violations.append(f"Length of {name}.STRING_LIST must be {genestrt.STRING_COUNT}, current: {len(genestrt.STRING_LIST)}")
+            if any(genestrt.STRING_LIST_PAD):
+                violations.append(f"All bytes of {name}.STRING_LIST_PAD must be 0")
+        return violations
+
+    def _validate_geneeof(self, geneeof: GENEEOF, name: str) -> list[str]:
+        violations: list[str] = []
+        if geneeof.SIGNATURE != b"GENEEOF ":
+            violations.append(f"{name}.SIGNATURE must be 'GENEEOF ', current: '{self._sig(geneeof.SIGNATURE)}'")
+        else:
+            if geneeof.TABLE_SIZE != 0:
+                violations.append(f"Size of {name} table must be 0, current: {geneeof.TABLE_SIZE}")
+        return violations
+
+    def _validate_file_sets(self) -> list[str]:
+        violations: list[str] = []
+        if len(self._FILE_SETS) != self._PACKFSLS.FS_SEG_COUNT:
+            violations.append(f"Count of FILE_SET must be {self._PACKFSLS.FS_SEG_COUNT}, current: {len(self._FILE_SETS)}")
+
+        # FS is padded to FS_PAD_TYPE, but the first FS always starts at a multiple of 2048
+        fs_align = {1: 2048, 2: 512}.get(self._PACKHEDR.FS_PAD_TYPE)
+        first_fs_ofs = min((fs.SEGMENT.FS_ABSOLUTE_OFS for fs in self._FILE_SETS), default=0)
+
+        for i, fs in enumerate(self._FILE_SETS):
+            name = f"FILE_SET[{i}]"
+            align = 2048 if fs.SEGMENT.FS_ABSOLUTE_OFS == first_fs_ofs else fs_align
+            if align and fs.SEGMENT.FS_ABSOLUTE_OFS % align != 0:
+                violations.append(f"Offset of {name} must be a multiple of {align}, current: {fs.SEGMENT.FS_ABSOLUTE_OFS}")
+
+            violations += self._validate_endiltle(fs.FS_ENDILTLE, f"{name}.FS_ENDILTLE")
+            violations += self._validate_packfshd(fs, name)
+            violations += self._validate_genestrt(fs.FS_GENESTRT, f"{name}.FS_GENESTRT")
+            violations += self._validate_geneeof(fs.FS_GENEEOF, f"{name}.FS_GENEEOF")
+        return violations
+
+    def _validate_packfshd(self, fs: FILE_SET, name: str) -> list[str]:
+        violations: list[str] = []
+        packfshd = fs.FS_PACKFSHD
+        if packfshd.SIGNATURE != b"PACKFSHD":
+            violations.append(f"{name}.FS_PACKFSHD.SIGNATURE must be 'PACKFSHD', current: '{self._sig(packfshd.SIGNATURE)}'")
+            return violations
+
+        expected_table_size = self._align16_size(4 * 8 + (packfshd.FILE_SEG_SIZE * packfshd.FILE_SEG_COUNT))
+        if packfshd.TABLE_SIZE != expected_table_size:
+            violations.append(f"Size of {name}.FS_PACKFSHD table must be {expected_table_size}, current: {packfshd.TABLE_SIZE}")
+        if packfshd.unknown_1 != 65536:
+            violations.append(f"Value of {name}.FS_PACKFSHD.unknown_1 must be 65536, current: {packfshd.unknown_1}")
+        if packfshd.FILE_SEG_SIZE != 32:
+            violations.append(f"Size of {name}.FS_PACKFSHD.FILE_SEG_SIZE must be 32, current: {packfshd.FILE_SEG_SIZE}")
+        if packfshd.FS_FILE_SEG_LIST_OFS != 32:
+            violations.append(f"Offset of {name}.FS_PACKFSHD.FS_FILE_SEG_LIST_OFS must be 32, current: {packfshd.FS_FILE_SEG_LIST_OFS}")
+        # size of ENDILTLE + PACKFSHD + GENESTRT (the engine does not use this field)
+        geneeof_ofs = 16 + (16 + packfshd.TABLE_SIZE) + (16 + fs.FS_GENESTRT.TABLE_SIZE)
+        if packfshd.GENEEOF_OFS != geneeof_ofs:
+            log.warning("Value of %s.FS_PACKFSHD.GENEEOF_OFS may be %d, current: %d", name, geneeof_ofs, packfshd.GENEEOF_OFS)
+        for field in ("unknown_2", "unknown_3", "unknown_4"):
+            if getattr(packfshd, field) != 0:
+                log.warning("Value of %s.FS_PACKFSHD.%s may be 0, current: %d", name, field, getattr(packfshd, field))
+        if len(packfshd.FS_FILE_SEG_LIST) != packfshd.FILE_SEG_COUNT:
+            violations.append(f"Length of {name}.FS_PACKFSHD.FS_FILE_SEG_LIST must be {packfshd.FILE_SEG_COUNT}, current: {len(packfshd.FS_FILE_SEG_LIST)}")
+
+        # the first file starts right after GENEEOF
+        string_count = len(fs.FS_GENESTRT.STRING_LIST)
+        files_ofs = geneeof_ofs + 16
+        first_file_ofs = min((seg.FILE_OFS for seg in packfshd.FS_FILE_SEG_LIST), default=files_ofs)
+        if first_file_ofs != files_ofs:
+            violations.append(f"The first FILE_OFS of {name} must be {files_ofs}, current: {first_file_ofs}")
+
+        for i, seg in enumerate(packfshd.FS_FILE_SEG_LIST):
+            if seg.NAME_IDX >= string_count:
+                violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
+            if seg.COMPRESS_TYPE not in [0, 2]:
+                violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].COMPRESS_TYPE must be 0 or 2, current: {seg.COMPRESS_TYPE}")
+            for field in ("unknown_1", "unknown_2", "unknown_3"):
+                if getattr(seg, field) != 0:
+                    log.warning("Value of %s.FS_FILE_SEG_LIST[%d].%s may be 0, current: %d", name, i, field, getattr(seg, field))
+            if seg.FILE_SIZE <= 0:
+                violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].FILE_SIZE must be greater than 0, current: {seg.FILE_SIZE}")
+            if seg.COMPRESS_TYPE == 2 and seg.FILE_ZSIZE <= 0:
+                violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].FILE_ZSIZE must be greater than 0 for a compressed file, current: {seg.FILE_ZSIZE}")
+            if seg.COMPRESS_TYPE == 0 and seg.FILE_ZSIZE != 0:
+                violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].FILE_ZSIZE must be 0 for an uncompressed file, current: {seg.FILE_ZSIZE}")
         return violations
 
     def _validate_toc_segments(self) -> list[str]:
