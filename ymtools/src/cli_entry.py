@@ -1,9 +1,20 @@
 import argparse
-import os
+import logging
 from pathlib import Path
 
 from ymtools.src import const
+from ymtools.src.logger import setup_cli_logging
 from ymtools.src.unpacker.unpack import Unpacker
+
+log = logging.getLogger(__name__)
+
+LOG_LEVELS: dict[str, int | None] = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warn": logging.WARNING,
+    "err": logging.ERROR,
+    "no": None,
+}
 
 
 def run_unpack(args: argparse.Namespace) -> int:
@@ -13,7 +24,11 @@ def run_unpack(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     # setup argparser
     parser = argparse.ArgumentParser(prog="ymtools", allow_abbrev=False, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("-v", "--version", action="version", version=f"ymtools {const.VERSION}\nGitHub: {const.GITHUB_URL}")
+    parser.add_argument("--version", action="version", version=f"ymtools {const.VERSION}\nGitHub: {const.GITHUB_URL}")
+
+    parser.add_argument("-l", "--log", choices=list(LOG_LEVELS), default=None, help=f"Log level({list(LOG_LEVELS)}) only logs at or above it are shown ('no' disables logging) (default: info)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Same as '--log debug' (ignored with a warning if --log is given with another level)")
+    parser.add_argument("--log-file", type=Path, default=Path.cwd() / "ymtools.log", help="Path of the log file; always overwritten (default: working directory)")
 
     sub_cmd = parser.add_subparsers(dest="command", required=True)
 
@@ -30,4 +45,14 @@ def main(argv: list[str] | None = None) -> int:
     # TODO sub commend for checker
 
     args = parser.parse_args(argv)
-    return args.handler(args)
+    log_level = args.log or ("debug" if args.verbose else "info")  # -l/--log takes priority over -v/--verbose
+    listener, _queue = setup_cli_logging(LOG_LEVELS[log_level], args.log_file)
+
+    try:
+        log.info(f"ymtools v{const.VERSION} by akio7624")
+        if args.verbose and args.log not in (None, "debug"):
+            log.warning(f"-v/--verbose is ignored because --log {args.log} is specified")
+
+        return args.handler(args)
+    finally:
+        listener.stop()
