@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
-from ymtools.src.structure.apk import ApkException
+from ymtools.src.structure.apk import ApkException, APK
 from ymtools.src.unpacker.unpack import Unpacker
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,12 @@ def run_unpack(args: argparse.Namespace) -> int:
     return Unpacker(args.input, args.output, args.combine_fs, args.worker_num).run()
 
 
+def run_check(args: argparse.Namespace) -> int:
+    apk = APK.read_apk(args.input)
+    apk.validate()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # setup argparser
     parser = argparse.ArgumentParser(prog="ymtools", allow_abbrev=False, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -63,7 +69,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # TODO sub commend for packer
 
-    # TODO sub commend for checker
+    # sub commend for checker
+    # TODO add IDX support(auto detect)
+    checker = sub_cmd.add_parser("validate", help="Validate an apk file. This may not be perfect")
+    checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
+    checker.set_defaults(handler=run_check)
 
     args = parser.parse_args(argv)
     log_level = args.log or ("debug" if args.verbose else "info")  # -l/--log takes priority over -v/--verbose
