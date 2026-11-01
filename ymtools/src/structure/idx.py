@@ -4,7 +4,7 @@ from pathlib import Path
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.structure._reader import read_endiltle, read_geneeof, read_genestrt, read_packfsls, read_packhedr, read_packtoc
 from ymtools.src.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC
-from ymtools.src.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order
+from ymtools.src.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_fs_segments, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order, validate_toc_segments
 from ymtools.src.structure.exceptions import IdxException
 
 __all__ = ["IDX", "IdxException"]
@@ -94,10 +94,13 @@ class IDX:
         # check for PACKTOC
         violations += validate_packtoc(self._PACKTOC)
         if self._PACKTOC.SIGNATURE == b"PACKTOC ":
+            violations += validate_toc_segments(self._PACKTOC, self._GENESTRT, False)
             violations += validate_toc_order(self._PACKTOC, self._GENESTRT)
 
         # check for PACKFSLS
         violations += validate_packfsls(self._PACKFSLS)
+        if self._PACKFSLS.SIGNATURE == b"PACKFSLS":
+            violations += validate_fs_segments(self._PACKFSLS, self._GENESTRT, False)
 
         # check for GENESTRT
         violations += validate_genestrt(self._GENESTRT, "GENESTRT")

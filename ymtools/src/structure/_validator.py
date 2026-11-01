@@ -5,8 +5,8 @@ from ymtools.src.structure.exceptions import ValidationException
 from ymtools.src.structure.utils import get_align16_size, sig_to_str
 
 __all__ = [
-    "validate_endiltle", "validate_packhedr", "validate_packtoc", "validate_toc_order",
-    "validate_packfsls", "validate_genestrt", "validate_geneeof", "raise_if_invalid",
+    "validate_endiltle", "validate_packhedr", "validate_packtoc", "validate_toc_segments", "validate_toc_order",
+    "validate_packfsls", "validate_fs_segments", "validate_genestrt", "validate_geneeof", "raise_if_invalid",
 ]
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,60 @@ def validate_packtoc(packtoc: PACKTOC) -> list[str]:
     return violations
 
 
+def validate_toc_segments(packtoc: PACKTOC, genestrt: GENESTRT, check_package_name_idx: bool) -> list[str]:
+    violations: list[str] = []
+    segs = packtoc.TOC_SEG_LIST
+    string_count = len(genestrt.STRING_LIST)
+
+    for i, seg in enumerate(segs):
+        if seg.IDENTIFIER not in [0, 1]:
+            violations.append(f"TOC_SEG_LIST[{i}].IDENTIFIER must be 0 or 1, current: {seg.IDENTIFIER}")
+            continue
+        if seg.COMPRESS_TYPE not in [0, 2]:
+            violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 or 2, current: {seg.COMPRESS_TYPE}")
+        if seg.unknown_1 != 0:
+            log.warning("Value of TOC_SEG_LIST[%d].unknown_1 may be 0, current: %s", i, seg.unknown_1)
+        if seg.NAME_IDX >= string_count:
+            violations.append(f"TOC_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
+        if check_package_name_idx and seg.PACKAGE_NAME_IDX != 0:
+            log.warning("Value of TOC_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
+        if seg.unknown_2 != 0:
+            log.warning("Value of TOC_SEG_LIST[%d].unknown_2 may be 0, current: %s", i, seg.unknown_2)
+
+        if seg.IDENTIFIER == 1:  # Directory
+            if seg.COMPRESS_TYPE != 0:
+                violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 for a directory, current: {seg.COMPRESS_TYPE}")
+            if seg.ENTRY_INDEX + seg.ENTRY_COUNT > len(segs):
+                violations.append(f"Children of TOC_SEG_LIST[{i}] are out of range: [{seg.ENTRY_INDEX}, {seg.ENTRY_INDEX + seg.ENTRY_COUNT}) of {len(segs)}")
+            if seg.unused_1 != 0:
+                log.warning("Value of TOC_SEG_LIST[%d].unused_1 may be 0, current: %s", i, seg.unused_1)
+            if seg.unused_2 != 0:
+                log.warning("Value of TOC_SEG_LIST[%d].unused_2 may be 0, current: %s", i, seg.unused_2)
+        else:  # File
+            if seg.FILE_SIZE <= 0:
+                violations.append(f"TOC_SEG_LIST[{i}].FILE_SIZE must be greater than 0, current: {seg.FILE_SIZE}")
+            if seg.COMPRESS_TYPE == 2 and seg.FILE_ZSIZE <= 0:
+                violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be greater than 0 for a compressed file, current: {seg.FILE_ZSIZE}")
+            if seg.COMPRESS_TYPE == 0 and seg.FILE_ZSIZE != 0:
+                violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be 0 for an uncompressed file, current: {seg.FILE_ZSIZE}")
+
+    # the first segment must be the root directory
+    if len(segs) == 0:
+        violations.append("TOC_SEG_LIST must have the root directory as the first segment")
+    else:
+        root = segs[0]
+        if root.IDENTIFIER != 1:
+            violations.append(f"TOC_SEG_LIST[0] must be the root directory, current IDENTIFIER: {root.IDENTIFIER}")
+        if root.NAME_IDX < string_count and genestrt.STRING_LIST[root.NAME_IDX] != "":
+            violations.append(f"Name of the root directory must be an empty string, current: '{genestrt.STRING_LIST[root.NAME_IDX]}'")
+        if root.IDENTIFIER == 1:
+            if root.ENTRY_COUNT > 0 and root.ENTRY_INDEX != 1:
+                violations.append(f"TOC_SEG_LIST[0].ENTRY_INDEX must be 1 when the root has children, current: {root.ENTRY_INDEX}")
+            if root.ENTRY_COUNT == 0 and root.ENTRY_INDEX != 0:
+                violations.append(f"TOC_SEG_LIST[0].ENTRY_INDEX must be 0 when the root has no children, current: {root.ENTRY_INDEX}")
+    return violations
+
+
 def validate_toc_order(packtoc: PACKTOC, genestrt: GENESTRT) -> list[str]:
     violations: list[str] = []
     segs = packtoc.TOC_SEG_LIST
@@ -89,6 +143,21 @@ def validate_packfsls(packfsls: PACKFSLS) -> list[str]:
             log.warning("Value of PACKFSLS.unknown_1 may be 0")
         if len(packfsls.FS_SEG_LIST) != packfsls.FS_SEG_COUNT:
             violations.append(f"Length of PACKFSLS.FS_SEG_LIST must be {packfsls.FS_SEG_COUNT}, current: {len(packfsls.FS_SEG_LIST)}")
+    return violations
+
+
+def validate_fs_segments(packfsls: PACKFSLS, genestrt: GENESTRT, check_package_name_idx: bool) -> list[str]:
+    violations: list[str] = []
+    string_count = len(genestrt.STRING_LIST)
+
+    for i, seg in enumerate(packfsls.FS_SEG_LIST):
+        if seg.NAME_IDX >= string_count:
+            violations.append(f"FS_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
+        if check_package_name_idx and seg.PACKAGE_NAME_IDX != 0:
+            log.warning("Value of FS_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
+        actual_hash = seg.actual_hash  # property access is not narrowed by the type checker, so keep it in a local
+        if actual_hash is not None and actual_hash != seg.FS_HASH:
+            violations.append(f"FS_SEG_LIST[{i}].FS_HASH must be {actual_hash.hex()}, current: {seg.FS_HASH.hex()}")
     return violations
 
 

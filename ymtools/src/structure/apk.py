@@ -5,8 +5,8 @@ from pathlib import Path
 
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.structure._reader import read_endiltle, read_geneeof, read_genestrt, read_packfsls, read_packhedr, read_packtoc
-from ymtools.src.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, FS_FILE_SEG
-from ymtools.src.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order
+from ymtools.src.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, FS_FILE_SEG, TOC_SEGMENT
+from ymtools.src.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_fs_segments, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order, validate_toc_segments
 from ymtools.src.structure.exceptions import ApkException
 from ymtools.src.structure.utils import get_align16_count, get_align16_size, sig_to_str
 
@@ -160,17 +160,19 @@ class APK:
 
         # check for PACKHEDR
         violations += validate_packhedr(self._PACKHEDR, "PACKHEDR", 0)
+        if self._PACKHEDR.NAME_IDX >= len(self._GENESTRT.STRING_LIST):
+            violations.append(f"PACKHEDR.NAME_IDX must be less than {len(self._GENESTRT.STRING_LIST)}, current: {self._PACKHEDR.NAME_IDX}")
 
         # check for PACKTOC
         violations += validate_packtoc(self._PACKTOC)
         if self._PACKTOC.SIGNATURE == b"PACKTOC ":  # segments are checked only if the table itself is valid
-            violations += self._validate_toc_segments()
+            violations += validate_toc_segments(self._PACKTOC, self._GENESTRT, True)
             violations += validate_toc_order(self._PACKTOC, self._GENESTRT)
 
         # check for PACKFSLS
         violations += validate_packfsls(self._PACKFSLS)
         if self._PACKFSLS.SIGNATURE == b"PACKFSLS":
-            violations += self._validate_fs_segments()
+            violations += validate_fs_segments(self._PACKFSLS, self._GENESTRT, True)
 
         # check for GENESTRT
         violations += validate_genestrt(self._GENESTRT, "GENESTRT")
@@ -253,54 +255,15 @@ class APK:
                 violations.append(f"{name}.FS_FILE_SEG_LIST[{i}].FILE_ZSIZE must be 0 for an uncompressed file, current: {seg.FILE_ZSIZE}")
         return violations
 
-    def _validate_toc_segments(self) -> list[str]:
-        violations: list[str] = []
-        segs = self._PACKTOC.TOC_SEG_LIST
-        string_count = len(self._GENESTRT.STRING_LIST)
+    # ========= utils ==========
+    def get_package_name(self) -> str:
+        return self._GENESTRT.STRING_LIST[self._PACKHEDR.NAME_IDX]
 
-        for i, seg in enumerate(segs):
-            if seg.IDENTIFIER not in [0, 1]:
-                violations.append(f"TOC_SEG_LIST[{i}].IDENTIFIER must be 0 or 1, current: {seg.IDENTIFIER}")
-                continue
-            if seg.COMPRESS_TYPE not in [0, 2]:
-                violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 or 2, current: {seg.COMPRESS_TYPE}")
-            if seg.unknown_1 != 0:
-                log.warning("Value of TOC_SEG_LIST[%d].unknown_1 may be 0, current: %s", i, seg.unknown_1)
-            if seg.NAME_IDX >= string_count:
-                violations.append(f"TOC_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
-            if seg.PACKAGE_NAME_IDX != 0:
-                log.warning("Value of TOC_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
-            if seg.unknown_2 != 0:
-                log.warning("Value of TOC_SEG_LIST[%d].unknown_2 may be 0, current: %s", i, seg.unknown_2)
+    def get_file_sets(self) -> list[FILE_SET]:
+        return self._FILE_SETS
 
-            if seg.IDENTIFIER == 1:  # Directory
-                if seg.COMPRESS_TYPE != 0:
-                    violations.append(f"TOC_SEG_LIST[{i}].COMPRESS_TYPE must be 0 for a directory, current: {seg.COMPRESS_TYPE}")
-                if seg.ENTRY_INDEX + seg.ENTRY_COUNT > len(segs):
-                    violations.append(f"Children of TOC_SEG_LIST[{i}] are out of range: [{seg.ENTRY_INDEX}, {seg.ENTRY_INDEX + seg.ENTRY_COUNT}) of {len(segs)}")
-                if seg.unused_1 != 0:
-                    log.warning("Value of TOC_SEG_LIST[%d].unused_1 may be 0, current: %s", i, seg.unused_1)
-                if seg.unused_2 != 0:
-                    log.warning("Value of TOC_SEG_LIST[%d].unused_2 may be 0, current: %s", i, seg.unused_2)
-            else:  # File
-                if seg.FILE_SIZE <= 0:
-                    violations.append(f"TOC_SEG_LIST[{i}].FILE_SIZE must be greater than 0, current: {seg.FILE_SIZE}")
-                if seg.COMPRESS_TYPE == 2 and seg.FILE_ZSIZE <= 0:
-                    violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be greater than 0 for a compressed file, current: {seg.FILE_ZSIZE}")
-                if seg.COMPRESS_TYPE == 0 and seg.FILE_ZSIZE != 0:
-                    violations.append(f"TOC_SEG_LIST[{i}].FILE_ZSIZE must be 0 for an uncompressed file, current: {seg.FILE_ZSIZE}")
-        return violations
+    def get_string_list(self) -> list[str]:
+        return self._GENESTRT.STRING_LIST
 
-    def _validate_fs_segments(self) -> list[str]:
-        violations: list[str] = []
-        string_count = len(self._GENESTRT.STRING_LIST)
-
-        for i, seg in enumerate(self._PACKFSLS.FS_SEG_LIST):
-            if seg.NAME_IDX >= string_count:
-                violations.append(f"FS_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
-            if seg.PACKAGE_NAME_IDX != 0:
-                log.warning("Value of FS_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
-            actual_hash = seg.actual_hash  # property access is not narrowed by the type checker, so keep it in a local
-            if actual_hash is not None and actual_hash != seg.FS_HASH:
-                violations.append(f"FS_SEG_LIST[{i}].FS_HASH must be {actual_hash.hex()}, current: {seg.FS_HASH.hex()}")
-        return violations
+    def get_toc_seg_list(self) -> list[TOC_SEGMENT]:
+        return self._PACKTOC.TOC_SEG_LIST
