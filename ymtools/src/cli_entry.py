@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
+from ymtools.src.structure.apk import ApkException
 from ymtools.src.unpacker.unpack import Unpacker
 
 log = logging.getLogger(__name__)
@@ -76,5 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             print_env(args)
 
         return args.handler(args)
+    except ApkException:
+        return 1
     finally:
         listener.stop()

@@ -83,7 +83,7 @@ struct _TOC_SEGMENT {
 // PACK Table Of Content
 struct _PACKTOC {
     uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'PACKTOC '  <- the last character is a space(ascii 0x20), not null
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(16 + (TOC_SEG_SIZE * TOC_SEG_COUNT))   16 = sizeof(TOC_SEG_SIZE + TOC_SEG_COUNT + TOC_SEG_LIST_OFS + unknown_1)
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(TOC_SEG_SIZE) + sizeof(TOC_SEG_COUNT) + sizeof(TOC_SEG_LIST_OFS) + sizeof(unknown_1) + (TOC_SEG_SIZE * TOC_SEG_COUNT))
     
     uint32 TOC_SEG_SIZE <bgcolor=cLtPurple>;  // assert: 40
     uint32 TOC_SEG_COUNT <bgcolor=cPurple>;
@@ -106,7 +106,7 @@ struct _FS_SEGMENT {
 // PACK File Set LiSt
 struct _PACKFSLS {
     uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSLS
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(16 + (FS_SEG_SIZE * FS_SEG_COUNT))   16 = sizeof(FS_SEG_COUNT + FS_SEG_SIZE + FS_SEG_LIST_OFS + unknown_1)
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(FS_SEG_COUNT) + sizeof(FS_SEG_SIZE) + sizeof(FS_SEG_LIST_OFS) + sizeof(unknown_1) + (FS_SEG_SIZE * FS_SEG_COUNT
     
     // Notice: The order of the count and size fields is the reverse of PACKTOC.
     uint32 FS_SEG_COUNT <bgcolor=cPurple>;
@@ -125,7 +125,7 @@ struct FILENAME {
 // GENEral STRing Table
 struct _GENESTRT {
     uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: GENESTRT
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(align16(16 + (4 * STRING_COUNT)) + arrsize(STRING_LIST))
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(align16(sizeof(STRING_COUNT) + sizeof(STRING_OFS_LIST_OFS) + sizeof(STRING_LIST_OFS) + sizeof(TABLE_SIZE_2) + (4 * STRING_COUNT)) + arrsize(STRING_LIST))
     
     uint32 STRING_COUNT <bgcolor=cPurple>;
     uint32 STRING_OFS_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16   로컬 오프셋

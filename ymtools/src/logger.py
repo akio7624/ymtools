@@ -37,7 +37,7 @@ class ColorHandler(RichHandler):
 
 
 def _build_handlers(log_file: Path) -> list[logging.Handler]:
-    console = ColorHandler(console=Console(theme=THEME), show_path=False, rich_tracebacks=True, markup=False)
+    console = ColorHandler(console=Console(theme=THEME), show_path=False, omit_repeated_times=False, rich_tracebacks=True, markup=False)
     console.setFormatter(logging.Formatter("%(message)s", datefmt=TIME_FORMAT))
 
     fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")

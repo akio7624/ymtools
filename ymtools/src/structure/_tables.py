@@ -74,7 +74,9 @@ class GENESTRT(TABLE_HEADER):
     STRING_LIST_OFS: uint32
     TABLE_SIZE_2: uint32
     STRING_OFS_LIST: list[uint32]
+    STRING_OFS_LIST_PAD: bytes
     STRING_LIST: list[str]
+    STRING_LIST_PAD: bytes
 
 
 @dataclass(slots=True)
