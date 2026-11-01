@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ymtools.src.typealias.ctype import uchar, uint16, uint32, uint64
 
@@ -56,6 +56,16 @@ class FS_SEGMENT:
     FS_ABSOLUTE_OFS: uint64
     FS_SIZE: uint64
     FS_HASH: bytes
+
+    _actual_hash: bytes | None = field(default=None, init=False, repr=False, compare=False)
+
+    @property
+    def actual_hash(self) -> bytes | None:
+        return self._actual_hash
+
+    @actual_hash.setter
+    def actual_hash(self, value: bytes | None) -> None:
+        self._actual_hash = value
 
 
 @dataclass(slots=True)

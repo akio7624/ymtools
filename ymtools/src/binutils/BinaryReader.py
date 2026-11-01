@@ -38,6 +38,13 @@ class BinaryReader:
             raise EOFError(f"expected {size} bytes at offset {self.file.tell() - len(data)}, got {len(data)}")
         return data
 
+    def read_chunks(self, size: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+        remaining = size
+        while remaining > 0:
+            chunk = self.read_bytes(min(remaining, chunk_size))
+            remaining -= len(chunk)
+            yield chunk
+
     def read_string(self, size: int) -> str:
         return self.read_bytes(size).decode("utf-8")
 

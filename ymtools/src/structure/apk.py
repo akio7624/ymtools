@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import math
 import struct
@@ -163,6 +164,14 @@ class APK:
             file_sets: list[FILE_SET] = []
             for i, fs_seg in enumerate(packfsls.FS_SEG_LIST):
                 log.info(f"Processing FILE_SET[{i}]")
+
+                # pre-calculate md5
+                br.seek(fs_seg.FS_ABSOLUTE_OFS)
+                md5 = hashlib.md5()
+                for chunk in br.read_chunks(fs_seg.FS_SIZE):
+                    md5.update(chunk)
+                fs_seg.actual_hash = md5.digest()
+
                 br.seek(fs_seg.FS_ABSOLUTE_OFS)
 
                 # ---------------------- ENDILTLE ----------------------
@@ -533,7 +542,9 @@ class APK:
                 violations.append(f"FS_SEG_LIST[{i}].NAME_IDX must be less than {string_count}, current: {seg.NAME_IDX}")
             if seg.PACKAGE_NAME_IDX != 0:
                 log.warning("Value of FS_SEG_LIST[%d].PACKAGE_NAME_IDX may be 0, current: %s", i, seg.PACKAGE_NAME_IDX)
-            # TODO FS_HASH is not checked here since it requires reading the data of the FS
+            actual_hash = seg.actual_hash  # property access is not narrowed by the type checker, so keep it in a local
+            if actual_hash is not None and actual_hash != seg.FS_HASH:
+                violations.append(f"FS_SEG_LIST[{i}].FS_HASH must be {actual_hash.hex()}, current: {seg.FS_HASH.hex()}")
         return violations
 
     def _validate_toc_order(self) -> list[str]:
