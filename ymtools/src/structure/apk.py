@@ -256,6 +256,9 @@ class APK:
         return violations
 
     # ========= utils ==========
+    def get_packhedr(self) -> PACKHEDR:
+        return self._PACKHEDR
+
     def get_package_name(self) -> str:
         return self._GENESTRT.STRING_LIST[self._PACKHEDR.NAME_IDX]
 

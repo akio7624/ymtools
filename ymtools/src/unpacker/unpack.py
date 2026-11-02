@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.structure.apk import APK
+from ymtools.src.structure.utils import walk_toc
 
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class Unpacker:
         root_dir = package_dir if self.COMBINE_FS else package_dir / "ROOT"
         fs_dir = package_dir if self.COMBINE_FS else package_dir / "FS"
 
-        paths = [""] * len(toc_seg_list)
+        paths, _ = walk_toc(toc_seg_list, string_list)
         progress: int = 0
         out_path: Path = root_dir
         try:
@@ -40,13 +41,15 @@ class Unpacker:
                     log.info(f"Processing toc segments...({progress}/{len(toc_seg_list)})")
                 progress += 1
 
+                path = paths[i]
+                if path is None:
+                    log.warning("Skip TOC_SEG_LIST[%d]: it is not reachable from the root", i)
+                    continue
+
                 if seg.IDENTIFIER == 1:  # dir
-                    for c in range(seg.ENTRY_INDEX, seg.ENTRY_INDEX + seg.ENTRY_COUNT):
-                        name = string_list[toc_seg_list[c].NAME_IDX]
-                        paths[c] = f"{paths[i]}/{name}" if paths[i] else name
-                    (root_dir / paths[i]).mkdir(parents=True, exist_ok=True)
+                    (root_dir / path).mkdir(parents=True, exist_ok=True)
                 elif seg.IDENTIFIER == 0:  # file
-                    out_path = root_dir / paths[i]
+                    out_path = root_dir / path
                     log.debug("Extract root file %s", out_path)
                     if not self._extract_file(br, out_path, seg.FILE_ABSOLUTE_OFS, seg.FILE_SIZE, seg.FILE_ZSIZE, seg.COMPRESS_TYPE):
                         return 1

@@ -7,7 +7,10 @@ from pathlib import Path
 
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
-from ymtools.src.structure.apk import ApkException, APK
+from ymtools.src.structure._validator import raise_if_invalid
+from ymtools.src.structure.apk import APK
+from ymtools.src.structure.exceptions import IdxException, ValidationException
+from ymtools.src.structure.idx import IDX
 from ymtools.src.unpacker.unpack import Unpacker
 
 log = logging.getLogger(__name__)
@@ -42,9 +45,15 @@ def run_unpack(args: argparse.Namespace) -> int:
     return Unpacker(args.input, args.output, args.combine_fs, args.worker_num).run()
 
 
-def run_check(args: argparse.Namespace) -> int:
-    apk = APK.read_apk(args.input)
-    apk.validate()
+def run_check_apk(args: argparse.Namespace) -> int:
+    APK.read_apk(args.input)  # read_apk validates and raises on violations
+    return 0
+
+
+def run_check_idx(args: argparse.Namespace) -> int:
+    idx = IDX.read_idx(args.input)  # validates the basic structure; raises on violations
+    violations = idx.validate_detail(args.input.parent, args.base)
+    raise_if_invalid(violations, IdxException)
     return 0
 
 
@@ -69,11 +78,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # TODO sub commend for packer
 
-    # sub commend for checker
-    # TODO add IDX support(auto detect)
-    checker = sub_cmd.add_parser("validate", help="Validate an apk file. This may not be perfect")
-    checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
-    checker.set_defaults(handler=run_check)
+    # sub commend for apk checker
+    apk_checker = sub_cmd.add_parser("validate-apk", help="Validate an apk file. This may not be perfect")
+    apk_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
+    apk_checker.set_defaults(handler=run_check_apk)
+
+    # sub commend for idx checker
+    idx_checker = sub_cmd.add_parser("validate-idx", help="Validate an idx file. This may not be perfect")
+    idx_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input idx file. The associated apk files are located automatically, relative to the location of the idx file")
+    idx_checker.add_argument("-b", "--base", type=Path, required=False, help="Specifies the base path where the apk and idx files are located. See the documentation for details")
+    idx_checker.set_defaults(handler=run_check_idx)
 
     args = parser.parse_args(argv)
     log_level = args.log or ("debug" if args.verbose else "info")  # -l/--log takes priority over -v/--verbose
@@ -87,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             print_env(args)
 
         return args.handler(args)
-    except ApkException:
+    except ValidationException:
         return 1
     finally:
         listener.stop()
