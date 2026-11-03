@@ -10,6 +10,7 @@ from ymtools.src.logger import setup_cli_logging
 from ymtools.src.structure._validator import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
+from ymtools.src.packer.pack import Packer
 from ymtools.src.structure.idx import IDX
 from ymtools.src.unpacker.unpack import Unpacker
 
@@ -45,6 +46,10 @@ def run_unpack(args: argparse.Namespace) -> int:
     return Unpacker(args.input, args.output, args.combine_fs, args.worker_num).run()
 
 
+def run_pack(args: argparse.Namespace) -> int:
+    return Packer(args.input, args.output).run()
+
+
 def run_check_apk(args: argparse.Namespace) -> int:
     APK.read_apk(args.input)  # read_apk validates and raises on violations
     return 0
@@ -76,7 +81,13 @@ def main(argv: list[str] | None = None) -> int:
     unpack.add_argument("-w", "--worker-num", type=int, default=2, help="Number of worker processes (default: %(default)s)")
     unpack.set_defaults(handler=run_unpack)
 
-    # TODO sub commend for packer
+    # sub commend for packer
+    pack = sub_cmd.add_parser("pack", help="Pack a directory into a single apk file")
+    pack.add_argument("-i", "--input", type=Path, required=True, help="Path to the source directory. It must have the same layout as the output of the unpack command")
+    pack.add_argument("-o", "--output", type=Path, required=True, help="Path to the output apk file")
+    pack.set_defaults(handler=run_pack)
+
+    # TODO sub commend for idxgen
 
     # sub commend for apk checker
     apk_checker = sub_cmd.add_parser("validate-apk", help="Validate an apk file. This may not be perfect")
