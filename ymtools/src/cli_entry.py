@@ -43,7 +43,7 @@ def print_env(args: argparse.Namespace) -> None:
 
 
 def run_unpack(args: argparse.Namespace) -> int:
-    return Unpacker(args.input, args.output, args.combine_fs, args.worker_num).run()
+    return Unpacker(args.input, args.output, args.worker_num).run()
 
 
 def run_pack(args: argparse.Namespace) -> int:
@@ -77,7 +77,6 @@ def main(argv: list[str] | None = None) -> int:
     unpack = sub_cmd.add_parser("unpack", help="Unpack an apk file")
     unpack.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
     unpack.add_argument("-o", "--output", type=Path, required=True, help="Directory to extract files into")
-    unpack.add_argument("-c", "--combine-fs", action="store_true", help="Extract root files and file sets (FS) into one directory (cannot be repacked; files may be overwritten)")
     unpack.add_argument("-w", "--worker-num", type=int, default=2, help="Number of worker processes (default: %(default)s)")
     unpack.set_defaults(handler=run_unpack)
 

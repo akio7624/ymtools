@@ -11,10 +11,9 @@ log = logging.getLogger(__name__)
 
 
 class Unpacker:
-    def __init__(self, input_path: Path, output_dir: Path, combine_fs: bool, worker_num: int) -> None:
+    def __init__(self, input_path: Path, output_dir: Path, worker_num: int) -> None:
         self.INPUT_PATH = input_path
         self.OUTPUT_DIR = output_dir
-        self.COMBINE_FS = combine_fs
         self.WORKER_NUM = worker_num
 
     def run(self) -> int:
@@ -28,8 +27,8 @@ class Unpacker:
         log.info(f"Segment count for extract: {len(toc_seg_list)}")
 
         package_dir = self.OUTPUT_DIR / apk.get_package_name()
-        root_dir = package_dir if self.COMBINE_FS else package_dir / "ROOT"
-        fs_dir = package_dir if self.COMBINE_FS else package_dir / "FS"
+        root_dir = package_dir / "ROOT"
+        fs_dir = package_dir / "FS"
 
         paths, _ = walk_toc(toc_seg_list, string_list)
         progress: int = 0
