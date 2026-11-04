@@ -6,3 +6,4 @@ PATCH_VERSION: Final[int] = 0
 
 VERSION: Final[str] = f"{MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION}"
 GITHUB_URL: Final[str] = "https://github.com/akio7624/ymtools"
+META_FILE_NAME: Final[str] = "__YMTOOLS__.json"
