@@ -10,6 +10,8 @@ from ymtools.src.logger import setup_cli_logging
 from ymtools.src.structure import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
+from ymtools.src.idxgen.exceptions import IdxGenException
+from ymtools.src.idxgen.gen import IdxGenerator
 from ymtools.src.packer.exceptions import PackerException
 from ymtools.src.packer.pack import Packer
 from ymtools.src.structure.idx import IDX
@@ -51,6 +53,10 @@ def run_pack(args: argparse.Namespace) -> int:
     return Packer(args.input, args.output).run()
 
 
+def run_idxgen(args: argparse.Namespace) -> int:
+    return IdxGenerator(args.input, args.output).run()
+
+
 def run_check_apk(args: argparse.Namespace) -> int:
     APK.read_apk(args.input)  # read_apk validates and raises on violations
     return 0
@@ -87,7 +93,11 @@ def main(argv: list[str] | None = None) -> int:
     pack.add_argument("-o", "--output", type=Path, required=True, help="Path to the output apk file")
     pack.set_defaults(handler=run_pack)
 
-    # TODO sub commend for idxgen
+    # sub commend for idx generator
+    idxgen = sub_cmd.add_parser("idxgen", help="Generate an idx file from apk files")
+    idxgen.add_argument("-i", "--input", type=Path, nargs="+", required=True, help="Paths to the input apk files. They are merged into one idx file")
+    idxgen.add_argument("-o", "--output", type=Path, required=True, help="Path to the output idx file")
+    idxgen.set_defaults(handler=run_idxgen)
 
     # sub commend for apk checker
     apk_checker = sub_cmd.add_parser("validate-apk", help="Validate an apk file. This may not be perfect")
@@ -114,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except ValidationException:
         return 1
-    except PackerException as e:
+    except (PackerException, IdxGenException) as e:
         log.error(str(e))
         return 1
     finally:

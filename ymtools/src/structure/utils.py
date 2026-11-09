@@ -1,7 +1,7 @@
 import math
 from pathlib import Path
 
-from ymtools.src.structure._tables import TOC_SEGMENT
+from ymtools.src.structure._tables import GENESTRT, TOC_SEGMENT
 
 
 def get_align16_count(ofs: int) -> int:
@@ -71,3 +71,27 @@ def walk_toc(toc_seg_list: list[TOC_SEGMENT], string_list: list[str]) -> tuple[l
             children.append(c)
         stack.extend(reversed(children))
     return paths, order
+
+
+def build_genestrt(string_list: list[str]) -> GENESTRT:
+    string_ofs_list: list[int] = []
+    string_list_size = 0
+    for s in string_list:
+        string_ofs_list.append(string_list_size)
+        string_list_size += len(s.encode("utf-8")) + 1
+
+    string_list_ofs = get_align16_size(16 + (4 * len(string_list)))
+    table_size = get_align16_size(string_list_ofs + string_list_size)
+
+    return GENESTRT(
+        SIGNATURE=b"GENESTRT",
+        TABLE_SIZE=table_size,
+        STRING_COUNT=len(string_list),
+        STRING_OFS_LIST_OFS=16,
+        STRING_LIST_OFS=string_list_ofs,
+        TABLE_SIZE_2=table_size,
+        STRING_OFS_LIST=string_ofs_list,
+        STRING_OFS_LIST_PAD=bytes(string_list_ofs - (16 + (4 * len(string_list)))),
+        STRING_LIST=string_list,
+        STRING_LIST_PAD=bytes(table_size - string_list_ofs - string_list_size),
+    )

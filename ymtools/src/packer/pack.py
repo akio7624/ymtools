@@ -10,9 +10,9 @@ from ymtools.src import const
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.binutils.BinaryWriter import BinaryWriter
 from ymtools.src.packer.exceptions import PackerException
-from ymtools.src.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
+from ymtools.src.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
 from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfshd, make_packfsls, make_packhedr, make_packtoc
-from ymtools.src.structure.utils import get_align16_size
+from ymtools.src.structure.utils import build_genestrt, get_align16_size
 
 log = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class Packer:
             FS_SEG_LIST=self._make_fs_seg_list(),
         )
 
-        self.ROOT_TABLES["GENESTRT"] = self._make_genestrt(list(self.ROOT_NAME_IDX))
+        self.ROOT_TABLES["GENESTRT"] = build_genestrt(list(self.ROOT_NAME_IDX))
 
         self.ROOT_TABLES["GENEEOF"] = GENEEOF(
             SIGNATURE=b"GENEEOF ",
@@ -198,7 +198,7 @@ class Packer:
 
         # make base metadata tables for each fs
         for fs_name, nodes in self.FS_NODES.items():
-            genestrt = self._make_genestrt([node.name for node in nodes])
+            genestrt = build_genestrt([node.name for node in nodes])
             packfshd_table_size = get_align16_size(32 + (32 * len(nodes)))
 
             self.FS_TABLES[fs_name] = {
@@ -437,6 +437,7 @@ class Packer:
                 yield node
 
     def _make_file_chunks(self, node: PackNode) -> Iterator[bytes]:
+        assert node.src_path is not None
         with BinaryReader(node.src_path) as br:
             if node.compress:
                 compressor = zlib.compressobj(9)
@@ -449,7 +450,7 @@ class Packer:
     def _make_fs_file_seg_list(self, nodes: list[PackNode]) -> list[FS_FILE_SEG]:
         seg_list: list[FS_FILE_SEG] = []
         for i, node in enumerate(nodes):
-            node.seg = FS_FILE_SEG(
+            seg = FS_FILE_SEG(
                 NAME_IDX=i,
                 COMPRESS_TYPE=2 if node.compress else 0,
                 unknown_1=0,
@@ -459,28 +460,6 @@ class Packer:
                 FILE_SIZE=node.size,
                 FILE_ZSIZE=0,
             )
-            seg_list.append(node.seg)
+            node.seg = seg
+            seg_list.append(seg)
         return seg_list
-
-    def _make_genestrt(self, string_list: list[str]) -> GENESTRT:
-        string_ofs_list: list[int] = []
-        string_list_size = 0
-        for s in string_list:
-            string_ofs_list.append(string_list_size)
-            string_list_size += len(s.encode("utf-8")) + 1
-
-        string_list_ofs = get_align16_size(16 + (4 * len(string_list)))
-        table_size = get_align16_size(string_list_ofs + string_list_size)
-
-        return GENESTRT(
-            SIGNATURE=b"GENESTRT",
-            TABLE_SIZE=table_size,
-            STRING_COUNT=len(string_list),
-            STRING_OFS_LIST_OFS=16,
-            STRING_LIST_OFS=string_list_ofs,
-            TABLE_SIZE_2=table_size,
-            STRING_OFS_LIST=string_ofs_list,
-            STRING_OFS_LIST_PAD=bytes(string_list_ofs - (16 + (4 * len(string_list)))),
-            STRING_LIST=string_list,
-            STRING_LIST_PAD=bytes(table_size - string_list_ofs - string_list_size),
-        )
