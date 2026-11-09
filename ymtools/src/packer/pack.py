@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import zlib
@@ -10,7 +11,7 @@ from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.binutils.BinaryWriter import BinaryWriter
 from ymtools.src.packer.exceptions import PackerException
 from ymtools.src.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
-from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfsls, make_packhedr, make_packtoc
+from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfshd, make_packfsls, make_packhedr, make_packtoc
 from ymtools.src.structure.utils import get_align16_size
 
 log = logging.getLogger(__name__)
@@ -128,6 +129,14 @@ class Packer:
         if not self.ROOT_NODES and not self.FS_NODES:
             raise PackerException("No file to pack")
 
+        # check that every compressed file in the metadata exists
+        missing_root = sorted(self.ROOT_COMPRESS_FILES - set(self._iter_paths(self.ROOT_NODES)))
+        fs_paths = {f"{fs_name}/{node.name}" for fs_name, nodes in self.FS_NODES.items() for node in nodes}
+        missing_fs = sorted(self.FS_COMPRESS_FILES - fs_paths)
+        if missing_root or missing_fs:
+            missing = [f"ROOT/{path}" for path in missing_root] + [f"FS/{path}" for path in missing_fs]
+            raise PackerException(f"{len(missing)} compressed file(s) in the metadata are not found: {', '.join(missing[:5])}{', ...' if len(missing) > 5 else ''}")
+
         self.ROOT_NAME_IDX = self._make_root_name_idx()
         toc_seg_list = self._make_toc_seg_list()
         self.TOC_SEG_COUNT = len(toc_seg_list)
@@ -217,6 +226,18 @@ class Packer:
                 ),
             }
 
+        self.OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._write_apk()
+            self.TEMP_PATH.replace(self.OUTPUT_PATH)
+        except BaseException:
+            self.TEMP_PATH.unlink(missing_ok=True)
+            raise
+
+        log.info("Packer finished: %s", self.OUTPUT_PATH)
+        return 0
+
+    def _write_apk(self) -> None:
         # write root files
         log.info("Write root files")
         with BinaryWriter(self.TEMP_PATH) as bw:
@@ -232,7 +253,56 @@ class Packer:
             if self.FS_NODES:
                 bw.write_align(2048)
 
-        return 0
+            # write fs
+            for i, (fs_seg, (fs_name, nodes)) in enumerate(zip(self.ROOT_TABLES["PACKFSLS"].FS_SEG_LIST, self.FS_NODES.items())):
+                log.info("Write fs %s", fs_name)
+                tables = self.FS_TABLES[fs_name]
+                fs_seg.FS_ABSOLUTE_OFS = bw.tell()
+
+                fs_tables_size = (
+                    len(make_endiltle(tables["ENDILTLE"]))
+                    + len(make_packfshd(tables["PACKFSHD"]))
+                    + len(make_genestrt(tables["GENESTRT"]))
+                    + len(make_geneeof(tables["GENEEOF"]))
+                )
+                bw.write_zeros(fs_tables_size)
+
+                for node in nodes:
+                    log.debug("Write fs file %s", node.src_path)
+                    node.seg.FILE_OFS = bw.tell() - fs_seg.FS_ABSOLUTE_OFS
+                    stored_size = bw.write_chunks(self._make_file_chunks(node))
+                    if node.compress:
+                        node.seg.FILE_ZSIZE = stored_size
+                    bw.write_align(16)
+
+                fs_end = bw.tell()
+                bw.seek(fs_seg.FS_ABSOLUTE_OFS)
+                bw.write_bytes(make_endiltle(tables["ENDILTLE"]))
+                bw.write_bytes(make_packfshd(tables["PACKFSHD"]))
+                bw.write_bytes(make_genestrt(tables["GENESTRT"]))
+                bw.write_bytes(make_geneeof(tables["GENEEOF"]))
+                bw.flush()
+
+                fs_seg.FS_SIZE = fs_end - fs_seg.FS_ABSOLUTE_OFS
+                md5 = hashlib.md5()
+                with BinaryReader(self.TEMP_PATH) as br:
+                    br.seek(fs_seg.FS_ABSOLUTE_OFS)
+                    for chunk in br.read_chunks(fs_seg.FS_SIZE):
+                        md5.update(chunk)
+                fs_seg.FS_HASH = md5.digest()
+
+                bw.seek(fs_end)
+                if i != len(self.FS_NODES) - 1:
+                    bw.write_align(2048 if self.FS_PAD_TYPE == 1 else 512)
+
+            # write root tables
+            bw.seek(0)
+            bw.write_bytes(make_endiltle(self.ROOT_TABLES["ENDILTLE"]))
+            bw.write_bytes(make_packhedr(self.ROOT_TABLES["PACKHEDR"]))
+            bw.write_bytes(make_packtoc(self.ROOT_TABLES["PACKTOC"]))
+            bw.write_bytes(make_packfsls(self.ROOT_TABLES["PACKFSLS"]))
+            bw.write_bytes(make_genestrt(self.ROOT_TABLES["GENESTRT"]))
+            bw.write_bytes(make_geneeof(self.ROOT_TABLES["GENEEOF"]))
 
     def _scan_dir(self, dir_path: Path, root_dir: Path) -> list[PackNode]:
         nodes: list[PackNode] = []
@@ -350,6 +420,14 @@ class Packer:
             FS_SIZE=0,
             FS_HASH=b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
         ) for fs_name in self.FS_NODES]
+
+    def _iter_paths(self, nodes: list[PackNode], prefix: str = "") -> Iterator[str]:
+        for node in nodes:
+            path = f"{prefix}{node.name}"
+            if node.is_dir:
+                yield from self._iter_paths(node.children, f"{path}/")
+            else:
+                yield path
 
     def _iter_files(self, nodes: list[PackNode]) -> Iterator[PackNode]:
         for node in nodes:
