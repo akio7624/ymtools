@@ -106,7 +106,7 @@ struct _FS_SEGMENT {
 // PACK File Set LiSt
 struct _PACKFSLS {
     uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: PACKFSLS
-    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(FS_SEG_COUNT) + sizeof(FS_SEG_SIZE) + sizeof(FS_SEG_LIST_OFS) + sizeof(unknown_1) + (FS_SEG_SIZE * FS_SEG_COUNT
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(FS_SEG_COUNT) + sizeof(FS_SEG_SIZE) + sizeof(FS_SEG_LIST_OFS) + sizeof(unknown_1) + (FS_SEG_SIZE * FS_SEG_COUNT))
     
     // Notice: The order of the count and size fields is the reverse of PACKTOC.
     uint32 FS_SEG_COUNT <bgcolor=cPurple>;

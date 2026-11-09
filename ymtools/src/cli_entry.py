@@ -10,6 +10,7 @@ from ymtools.src.logger import setup_cli_logging
 from ymtools.src.structure._validator import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
+from ymtools.src.packer.exceptions import PackerException
 from ymtools.src.packer.pack import Packer
 from ymtools.src.structure.idx import IDX
 from ymtools.src.unpacker.unpack import Unpacker
@@ -112,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
 
         return args.handler(args)
     except ValidationException:
+        return 1
+    except PackerException as e:
+        log.error(str(e))
         return 1
     finally:
         listener.stop()
