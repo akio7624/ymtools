@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
-from ymtools.src.structure._validator import raise_if_invalid
+from ymtools.src.structure import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
 from ymtools.src.packer.exceptions import PackerException

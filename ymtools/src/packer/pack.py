@@ -1,12 +1,16 @@
 import json
 import logging
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from ymtools.src import const
+from ymtools.src.binutils.BinaryReader import BinaryReader
+from ymtools.src.binutils.BinaryWriter import BinaryWriter
 from ymtools.src.packer.exceptions import PackerException
-from ymtools.src.structure._tables import ENDILTLE, FS_SEGMENT, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
+from ymtools.src.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
+from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfsls, make_packhedr, make_packtoc
 from ymtools.src.structure.utils import get_align16_size
 
 log = logging.getLogger(__name__)
@@ -16,7 +20,7 @@ log = logging.getLogger(__name__)
 패킹 과정 정리
 1. 루트 및 FS에서 필요한 문자열 수집 및 세그먼트 데이터 정렬
 2. 가능한 정보들로 루트 및 FS 메타데이터 테이블 객체 먼저 생성
-3. 각 테이블을 바이너리로 변환하여 사이즈 모두 더한다
+3. 각 루트 테이블을 바이너리로 변환하여 사이즈 모두 더한다
 4. 더한 합을 2048에 맞춰 패딩했다 가정할 때 그 지점부터 루트 파일이 시작되는 위치이다. 이 위치를 ROOT_FILES_OFS에 기록한다
 5. 임시 파일에 해당 사이즈만큼 앞에 빈 공간 만들고, 루트 파일 시작 지점부터 실제로 파일을 바로 순차적으로 쓴다
 6. 각 파일을 쓰면서 압축 크기 등을 계산하며 매번 해당하는 세그먼트의 미완성 필드를 채워주고, 각 파일에 대한 패딩을 적용한다
@@ -43,13 +47,14 @@ class PackNode:
     src_path: Path | None = None  # file only
     size: int = 0  # file only
     compress: bool = False  # file only
-    seg: TOC_SEGMENT | None = None  # segment of this node in PACKTOC, root nodes only
+    seg: TOC_SEGMENT | FS_FILE_SEG | None = None  # segment of this node, TOC_SEGMENT for root nodes and FS_FILE_SEG for fs nodes
 
 
 class Packer:
     def __init__(self, input_dir: Path, output_path: Path) -> None:
         self.INPUT_DIR = input_dir
         self.OUTPUT_PATH = output_path
+        self.TEMP_PATH = output_path.with_name(output_path.name + ".tmp")
 
         self.PACKAGE_NAME: str = ""
         self.FS_PAD_TYPE: int = -1
@@ -71,6 +76,8 @@ class Packer:
                 "GENEEOF": None,
             }
         self.FS_TABLES: dict[str, dict[str, Any]] = {}
+        self.ROOT_TABLES_SIZE = -1
+        self.ROOT_FILES_OFS = -1
 
     def run(self) -> int:
         log.info("Packer starting")
@@ -137,7 +144,7 @@ class Packer:
             TABLE_SIZE=32,
             unknown_1=65536,
             NAME_IDX=0,
-            ROOT_FILES_OFS=-1,
+            ROOT_FILES_OFS=0,
             FS_PAD_TYPE=self.FS_PAD_TYPE,
             HASH=b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
         )
@@ -168,6 +175,62 @@ class Packer:
             SIGNATURE=b"GENEEOF ",
             TABLE_SIZE=0
         )
+
+        self.ROOT_TABLES_SIZE = (
+            len(make_endiltle(self.ROOT_TABLES["ENDILTLE"]))
+            + len(make_packhedr(self.ROOT_TABLES["PACKHEDR"]))
+            + len(make_packtoc(self.ROOT_TABLES["PACKTOC"]))
+            + len(make_packfsls(self.ROOT_TABLES["PACKFSLS"]))
+            + len(make_genestrt(self.ROOT_TABLES["GENESTRT"]))
+            + len(make_geneeof(self.ROOT_TABLES["GENEEOF"]))
+        )
+        self.ROOT_FILES_OFS = (self.ROOT_TABLES_SIZE + 2047) // 2048 * 2048
+        self.ROOT_TABLES["PACKHEDR"].ROOT_FILES_OFS = self.ROOT_FILES_OFS
+
+        # make base metadata tables for each fs
+        for fs_name, nodes in self.FS_NODES.items():
+            genestrt = self._make_genestrt([node.name for node in nodes])
+            packfshd_table_size = get_align16_size(32 + (32 * len(nodes)))
+
+            self.FS_TABLES[fs_name] = {
+                "ENDILTLE": ENDILTLE(
+                    SIGNATURE=b"ENDILTLE",
+                    TABLE_SIZE=0
+                ),
+                "PACKFSHD": PACKFSHD(
+                    SIGNATURE=b"PACKFSHD",
+                    TABLE_SIZE=packfshd_table_size,
+                    unknown_1=65536,
+                    FILE_SEG_SIZE=32,
+                    FILE_SEG_COUNT=len(nodes),
+                    FS_FILE_SEG_LIST_OFS=32,
+                    GENEEOF_OFS=16 + (16 + packfshd_table_size) + (16 + genestrt.TABLE_SIZE),
+                    unknown_2=0,
+                    unknown_3=0,
+                    unknown_4=0,
+                    FS_FILE_SEG_LIST=self._make_fs_file_seg_list(nodes),
+                ),
+                "GENESTRT": genestrt,
+                "GENEEOF": GENEEOF(
+                    SIGNATURE=b"GENEEOF ",
+                    TABLE_SIZE=0
+                ),
+            }
+
+        # write root files
+        log.info("Write root files")
+        with BinaryWriter(self.TEMP_PATH) as bw:
+            bw.write_zeros(self.ROOT_FILES_OFS)
+            for node in self._iter_files(self.ROOT_NODES):
+                log.debug("Write root file %s", node.src_path)
+                node.seg.FILE_ABSOLUTE_OFS = bw.tell()
+                stored_size = bw.write_chunks(self._make_file_chunks(node))
+                if node.compress:
+                    node.seg.FILE_ZSIZE = stored_size
+                bw.write_align(512)
+
+            if self.FS_NODES:
+                bw.write_align(2048)
 
         return 0
 
@@ -287,6 +350,39 @@ class Packer:
             FS_SIZE=0,
             FS_HASH=b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
         ) for fs_name in self.FS_NODES]
+
+    def _iter_files(self, nodes: list[PackNode]) -> Iterator[PackNode]:
+        for node in nodes:
+            if node.is_dir:
+                yield from self._iter_files(node.children)
+            else:
+                yield node
+
+    def _make_file_chunks(self, node: PackNode) -> Iterator[bytes]:
+        with BinaryReader(node.src_path) as br:
+            if node.compress:
+                compressor = zlib.compressobj(9)
+                for chunk in br.read_chunks(node.size):
+                    yield compressor.compress(chunk)
+                yield compressor.flush()
+            else:
+                yield from br.read_chunks(node.size)
+
+    def _make_fs_file_seg_list(self, nodes: list[PackNode]) -> list[FS_FILE_SEG]:
+        seg_list: list[FS_FILE_SEG] = []
+        for i, node in enumerate(nodes):
+            node.seg = FS_FILE_SEG(
+                NAME_IDX=i,
+                COMPRESS_TYPE=2 if node.compress else 0,
+                unknown_1=0,
+                unknown_2=0,
+                unknown_3=0,
+                FILE_OFS=0,
+                FILE_SIZE=node.size,
+                FILE_ZSIZE=0,
+            )
+            seg_list.append(node.seg)
+        return seg_list
 
     def _make_genestrt(self, string_list: list[str]) -> GENESTRT:
         string_ofs_list: list[int] = []
