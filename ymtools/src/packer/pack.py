@@ -57,8 +57,9 @@ class Packer:
         self.FS_COMPRESS_FILES: set[str] = set()
 
         self.ROOT_NODES: list[PackNode] = []
+        self.ROOT_NAME_IDX: dict[str, int] = {}
         self.TOC_SEG_COUNT = -1
-        self.FS_NODES: dict[str, list[PackNode]] = {}  # key: fs name, in name order
+        self.FS_NODES: dict[str, list[PackNode]] = {}
         self.FS_SEG_COUNT = -1
 
         self.ROOT_TABLES: dict[str, Any] = {
@@ -69,7 +70,7 @@ class Packer:
                 "GENESTRT": None,
                 "GENEEOF": None,
             }
-        self.FS_TABLES: dict[str, dict[str, Any]] = {}  # key: FS name, value: FS table dict
+        self.FS_TABLES: dict[str, dict[str, Any]] = {}
 
     def run(self) -> int:
         log.info("Packer starting")
@@ -120,7 +121,9 @@ class Packer:
         if not self.ROOT_NODES and not self.FS_NODES:
             raise PackerException("No file to pack")
 
-        self.TOC_SEG_COUNT = 1 + self._count_nodes(self.ROOT_NODES)
+        self.ROOT_NAME_IDX = self._make_root_name_idx()
+        toc_seg_list = self._make_toc_seg_list()
+        self.TOC_SEG_COUNT = len(toc_seg_list)
         self.FS_SEG_COUNT = len(self.FS_NODES)
 
         # make base metadata tables for root
@@ -146,7 +149,7 @@ class Packer:
             TOC_SEG_COUNT=self.TOC_SEG_COUNT,
             TOC_SEG_LIST_OFS=16,
             unknown_1=0,
-            TOC_SEG_LIST=self._make_toc_seg_list(),
+            TOC_SEG_LIST=toc_seg_list,
         )
 
         self.ROOT_TABLES["PACKFSLS"] = PACKFSLS(
@@ -159,7 +162,7 @@ class Packer:
             FS_SEG_LIST=self._make_fs_seg_list(),
         )
 
-        self.ROOT_TABLES["GENESTRT"] = self._make_genestrt(list(self._make_root_name_idx()))
+        self.ROOT_TABLES["GENESTRT"] = self._make_genestrt(list(self.ROOT_NAME_IDX))
 
         self.ROOT_TABLES["GENEEOF"] = GENEEOF(
             SIGNATURE=b"GENEEOF ",
@@ -215,20 +218,8 @@ class Packer:
         nodes.sort(key=lambda n: n.name.encode("utf-8"))
         return nodes
 
-    def _count_nodes(self, nodes):
-        return sum(1 + (self._count_nodes(n.children) if n.is_dir else 0) for n in nodes)
-
     def _make_toc_seg_list(self) -> list[TOC_SEGMENT]:
-        name_idx: dict[str, int] = {self.PACKAGE_NAME: 0, "": 1}
-
-        def collect_names(nodes: list[PackNode]) -> None:
-            for node in nodes:
-                if node.name not in name_idx:
-                    name_idx[node.name] = len(name_idx)
-                if node.is_dir:
-                    collect_names(node.children)
-
-        collect_names(self.ROOT_NODES)
+        name_idx = self.ROOT_NAME_IDX
 
         def make_seg(node: PackNode) -> TOC_SEGMENT:
             if node.is_dir:
@@ -253,14 +244,8 @@ class Packer:
             node.seg = seg
             return seg
 
-        seg_list: list[TOC_SEGMENT] = [TOC_SEGMENT(
-            IDENTIFIER=1,
-            COMPRESS_TYPE=0,
-            unknown_1=0,
-            NAME_IDX=name_idx[""],
-            PACKAGE_NAME_IDX=0,
-            unknown_2=0,
-        )]
+        root = PackNode(name="", is_dir=True, children=self.ROOT_NODES)
+        seg_list: list[TOC_SEGMENT] = [make_seg(root)]
 
         def layout(seg: TOC_SEGMENT, nodes: list[PackNode]) -> None:
             seg.ENTRY_INDEX = len(seg_list) if nodes else 0
@@ -272,9 +257,8 @@ class Packer:
                 if node.is_dir:
                     layout(child, node.children)
 
-        layout(seg_list[0], self.ROOT_NODES)
+        layout(seg_list[0], root.children)
 
-        assert len(seg_list) == self.TOC_SEG_COUNT
         return seg_list
 
     def _make_root_name_idx(self) -> dict[str, int]:
@@ -294,7 +278,7 @@ class Packer:
         return name_idx
 
     def _make_fs_seg_list(self) -> list[FS_SEGMENT]:
-        name_idx = self._make_root_name_idx()
+        name_idx = self.ROOT_NAME_IDX
 
         return [FS_SEGMENT(
             NAME_IDX=name_idx[fs_name],
