@@ -1,0 +1,287 @@
+//------------------------------------------------
+//--- 010 Editor v14.0.1 Binary Template
+//
+//      File: APK.bt
+//   Authors: akio7624
+//   Version: 1.0
+//   Purpose: Parse GOP file found in some console games
+//  Category: Game
+// File Mask: *.gop
+//  ID Bytes: 47 4F 50 20 47 46 49 4E  // GOP GFIN
+//   History:
+//   1.0   2026-12-01 Initial release
+//
+//------------------------------------------------
+//
+// For more detailed file structure information,
+// https://github.com/akio7624/ymtools
+//
+// This template was created based on the QuickBMS script dragon_ball_z_boz.bms and
+// the author & AI's analysis.
+// Although not all fields have been fully analyzed,
+// there should be no issues with extracting or packing files.
+// If you'd like to share additional information, please open issue on repository.
+// https://github.com/akio7624/ymtools
+
+
+// ===================================== global variables =====================================
+local int64 gmet_body_ofs = 0;
+local int64 record_size = 0;
+local uint32 record_list_ofs = 0;
+// ============================================================================================
+
+
+
+// ===================================== common struct =====================================
+// Gop File INformation
+struct _GFIN {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GOP GFIN'
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: 16
+
+    uint32 VERSION <bgcolor=cLtPurple>;  // assert: 2
+    uint32 unknown_1 <bgcolor=cSilver>;  // assert: 1
+    uint32 unknown_2 <bgcolor=cSilver>;  // assert: 0
+    uint32 unknown_3 <bgcolor=cSilver>;  // assert: 0
+};
+
+struct _GMET_ITEM {
+    uint16 KIND <bgcolor=cLtPurple, comment=MakeGmetKindComment(this)>;  // assert: 0 or 1
+
+    if(KIND == 0) {  //value: string index
+        uint16 VALUE_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>;
+    } else {  // has child node: GMET body relative offset
+        uint16 CHILD_NODE_OFS <format=hex, bgcolor=cLtYellow, comment=GetStr(ReadUShort(gmet_body_ofs + this))>;  // comment: get name string of child node
+    }
+};
+
+struct _GMET_NODE {
+    uint16 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>;
+    uint16 ITEM_COUNT <bgcolor=cPurple>;
+
+    if(ITEM_COUNT > 0) {
+        _GMET_ITEM ITEM_LIST[ITEM_COUNT] <optimize=false>;
+    }
+};
+
+// Gop METadata
+struct _GMET {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GOP GMET'
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(arrsize(NODE_LIST))
+
+    gmet_body_ofs = FTell();
+    local int64 body_end_ofs = gmet_body_ofs + TABLE_SIZE;
+
+    while(FTell() < body_end_ofs && ReadUShort(FTell() + 2) != 0) {  // ... && node.ITEM_COUNT != 0
+        _GMET_NODE NODE_LIST <comment=GetStr(this.NAME_IDX)>;
+    }
+
+    byte GMET_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+struct _GREC_COLUMN {
+    uint32 TYPE <bgcolor=cLtPurple, comment=MakeColumnTypeComment(this)>;
+    uint32 OFFSET <bgcolor=cLtYellow>;  // record 기준 로컬 오프셋
+    uint16 NAME_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>;
+    uint16 LANG_FLAG <bgcolor=cLtGray>;  // assert: 0 or 1
+};
+
+// Gop RECord -> not record(row), column
+struct _GREC {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GOP GREC'
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(COLUMN_COUNT) + (sizeof(_GREC_COLUMN) * COLUMN_COUNT))
+
+    uint32 COLUMN_COUNT <bgcolor=cPurple>;
+    _GREC_COLUMN COLUMN_LIST[COLUMN_COUNT] <comment=GetStr(this.NAME_IDX), optimize=false>;  // assert: COLUMN_LIST[0].TYPE == 14
+
+    byte GREC_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+struct STR_ITEM {
+    string str;
+};
+
+// GENEral STRing Table
+struct _GENESTRT {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: GENESTRT
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(align16(sizeof(STRING_COUNT) + sizeof(STRING_OFS_LIST_OFS) + sizeof(STRING_LIST_OFS) + sizeof(TABLE_SIZE_2) + (4 * STRING_COUNT)) + arrsize(STRING_LIST))
+
+    uint32 STRING_COUNT <bgcolor=cPurple>;
+    uint32 STRING_OFS_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16   로컬 오프셋
+    uint32 STRING_LIST_OFS <bgcolor=cLtYellow>;  // assert: align16(16 + 4 * (STRING_COUNT + 1))   로컬 오프셋
+    uint32 TABLE_SIZE_2 <bgcolor=cLtAqua>;  // assert: == TABLE_SIZE
+    uint32 STRING_OFS_LIST[STRING_COUNT + 1] <bgcolor=cLtRed>;  // last item is offset of the virtual string past the last one
+    byte STRING_OFS_LIST_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+    STR_ITEM STRING_LIST[STRING_COUNT] <optimize=false, bgcolor=0xddf6d6, read=(str)>;  // array of null terminated UTF-8 string
+    byte STRING_LIST_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+struct _CELL (uint32 col_index) {
+    local uint32 col = col_index;
+    local uint32 typ = GREC.COLUMN_LIST[col_index].TYPE;
+    switch(typ) {
+        case 2: int32 v_enum <bgcolor=0xddf6d6>; break;
+        case 3: char v_int8 <bgcolor=0xddf6d6>; break;
+        case 4: int16 v_int16 <bgcolor=0xddf6d6>; break;
+        case 5: int32 v_int32 <bgcolor=0xddf6d6>; break;
+        case 7: uchar v_uint8 <bgcolor=0xddf6d6>; break;
+        case 8: uint16 v_uint16 <bgcolor=0xddf6d6>; break;
+        case 9: uint32 v_uint32 <bgcolor=0xddf6d6>; break;
+        case 11: float v_float <bgcolor=0xddf6d6>; break;
+        case 13: uchar v_bool <bgcolor=0xddf6d6>; break;
+        case 14: uint32 recid_idx <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>; break;
+        case 15: uint32 string_idx <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>; break;
+        case 22: float frgba[4]<bgcolor=0xddf6d6>; break;
+        case 23: float frgb[3] <bgcolor=0xddf6d6>; break;
+        case 24: uchar rgba[4] <bgcolor=0xddf6d6>; break;
+        case 25: uchar rgb[3] <bgcolor=0xddf6d6>; break;
+        case 27: float vector3[3] <bgcolor=0xddf6d6>; break;
+        case 29: int32 ivector2[2] <bgcolor=0xddf6d6>; break;
+        case 31: int32 ivector4[4] <bgcolor=0xddf6d6>; break;
+        default: Assert(false, Str("Unknown column TYPE '%u'", typ));
+    }
+};
+
+struct _DATA (uint32 stride) {
+    local int64 base = FTell();
+    local uint32 i;
+
+    for(i=0; i<GREC.COLUMN_COUNT; i++) {
+        FSeek(base + GREC.COLUMN_LIST[i].OFFSET);
+        _CELL CELL(i) <comment=MakeCellComment>;
+    }
+    FSeek(base + stride);
+};
+
+// Gop DATa -> row
+struct _GDAT {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GOP GDAT'
+    uint64 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: align16(sizeof(DATA_LIST_OFS) + (RECORD_SIZE * RECORD_COUNT))
+
+    local int64 body_ofs = FTell();
+    uint32 RECORD_SIZE <bgcolor=cLtPurple>;
+    uint32 RECORD_COUNT <bgcolor=cPurple>;
+    uint32 INDEX_LIST_OFS <bgcolor=cLtYellow>;  // assert: 16   로컬 오프셋
+    uint32 DATA_LIST_OFS <bgcolor=cLtYellow>;  // assert: align16(sizeof(RECORD_SIZE) + sizeof(RECORD_COUNT) + sizeof(INDEX_LIST_OFS) + sizeof(DATA_LIST_OFS) + (RECORD_SIZE * RECORD_COUNT))   로컬 오프셋
+
+    record_size = RECORD_SIZE;
+    record_list_ofs = body_ofs + DATA_LIST_OFS;
+
+    if(RECORD_COUNT > 0) {
+        uint32 INDEX_LIST[RECORD_COUNT] <bgcolor=cLtRed>;
+    }
+    byte INDEX_LIST_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+
+    FSeek(body_ofs + DATA_LIST_OFS);
+    local uint32 r;
+    for(r=0; r<RECORD_COUNT; r++) {
+        _DATA DATA_LIST(RECORD_SIZE);
+    }
+
+    byte GDAT_PAD[GetAlign16Count()] <bgcolor=cLtAqua>;  // assert: all bytes are 0
+};
+
+// GENEral End Of File
+struct _GENEEOF {
+    uchar SIGNATURE[8] <bgcolor=cLtGreen>;  // assert: 'GENEEOF '
+    uint32 TABLE_SIZE <bgcolor=cLtAqua>;  // assert: 0
+    uint32 CHILD_OFS <bgcolor=cSilver>;  // assert: 0
+};
+// =========================================================================================
+
+
+
+// ===================================== method =====================================
+// -------------------------- Padding Size --------------------------
+uint64 GetAlign16Count() {
+    return (-FTell()) & 15;
+}
+
+// ------------------------- Name ----------------------------------
+string GetStr(uint32 idx) {
+    if(idx == 0xFFFFFFFF) return "(NULL)";
+    if(GENESTRT.STRING_COUNT <= idx) return Str("(invalid string index %u)", idx);
+
+    local string s = GENESTRT.STRING_LIST[idx].str;
+    if(Strcmp(s, "") == 0) return "(empty string)";
+
+    return s;
+}
+
+// ------------------------- Comment -----------------------------------
+string MakeGmetKindComment(uint16 kind) {
+    if(kind == 0) {
+        return "value";
+    }else if(kind == 1) {
+        return "has child node";
+    }else{
+        return Str("%d is an unknown GMET item KIND. Please report it.", kind);
+    }
+}
+
+string MakeColumnTypeComment(uint32 typ) {
+    switch(typ) {
+        case 2: return "Enum";
+        case 3: return "Int8";
+        case 4: return "Int16";
+        case 5: return "Int32";
+        case 7: return "UInt8";
+        case 8: return "UInt16";
+        case 9: return "UInt32";
+        case 11: return "Float32";
+        case 13: return "bool";
+        case 14: return "RecId";
+        case 15: return "String";
+        case 22: return "FRgba";
+        case 23: return "FRgb";
+        case 24: return "Rgba";
+        case 25: return "Rgb";
+        case 27: return "Vector3";
+        case 29: return "IVector2";
+        case 31: return "IVector4";
+    }
+    return Str("%u is an unknown column TYPE. Please report it.", typ);
+}
+
+string MakeCellComment(_CELL &c) {
+    local string name = GetStr(GREC.COLUMN_LIST[c.col].NAME_IDX);
+    if(exists(c.string_idx)) return Str("%s = %s", name, GetStr(c.string_idx));
+    if(exists(c.recid_idx)) return Str("%s = %s", name, GetStr(c.recid_idx));
+    if(exists(c.v_int32)) return Str("%s = %d", name, c.v_int32);
+    if(exists(c.v_enum)) return Str("%s = %d", name, c.v_enum);
+    if(exists(c.v_int16)) return Str("%s = %d", name, c.v_int16);
+    if(exists(c.v_uint16)) return Str("%s = %u", name, c.v_uint16);
+    if(exists(c.v_int8)) return Str("%s = %d", name, c.v_int8);
+    if(exists(c.v_uint8)) return Str("%s = %u", name, c.v_uint8);
+    if(exists(c.v_uint32)) return Str("%s = %u", name, c.v_uint32);
+    if(exists(c.v_bool)) return Str("%s = %s", name, c.v_bool ? "true" : "false");
+    if(exists(c.v_float)) return Str("%s = %g", name, c.v_float);
+    return name;
+}
+// ==================================================================================
+
+
+
+// ===================================== File analysis area =====================================
+LittleEndian();  // Use Little Endian
+
+_GFIN GFIN;
+Assert(Strcmp(GFIN.SIGNATURE, "GOP GFIN") == 0, "The signature of the `GFIN` table must be 'GOP GFIN'.");
+Assert(GFIN.VERSION == 2, "GFIN.VERSION must be 2 (the engine rejects other versions).");
+
+_GMET GMET;
+Assert(Strcmp(GMET.SIGNATURE, "GOP GMET") == 0, "The signature of the `GMET` table must be 'GOP GMET'.");
+
+_GREC GREC;
+Assert(Strcmp(GREC.SIGNATURE, "GOP GREC") == 0, "The signature of the `GREC` table must be 'GOP GREC'.");
+
+_GENESTRT GENESTRT;
+Assert(Strcmp(GENESTRT.SIGNATURE, "GENESTRT") == 0, "The signature of the `GENESTRT` table must be 'GENESTRT'.");
+
+_GDAT GDAT;
+Assert(Strcmp(GDAT.SIGNATURE, "GOP GDAT") == 0, "The signature of the `GDAT` table must be 'GOP GDAT'.");
+
+_GENEEOF GENEEOF;
+Assert(Strcmp(GENEEOF.SIGNATURE, "GENEEOF ") == 0, "The signature of the `GENEEOF` table must be 'GENEEOF '.");
+// ==============================================================================================
+
+Printf("The template execution is complete.\n");

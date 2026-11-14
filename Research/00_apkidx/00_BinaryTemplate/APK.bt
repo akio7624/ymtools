@@ -312,7 +312,7 @@ void QuickSortOffsets(uint64 ofs_list[], int pos_list[], int count) {
 
 
 
-// ===================================== File analysis area. =====================================
+// ===================================== File analysis area =====================================
 LittleEndian();  // Use Little Endian
 
 _ENDILTLE ENDILTLE;
