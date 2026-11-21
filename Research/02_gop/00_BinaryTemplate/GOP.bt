@@ -48,9 +48,9 @@ struct _GMET_ITEM {
     uint16 KIND <bgcolor=cLtPurple, comment=MakeGmetKindComment(this)>;  // assert: 0 or 1
 
     if(KIND == 0) {  //value: string index
-        uint16 VALUE_IDX <fgcolor=cWhite, bgcolor=cDkPurple, comment=GetStr(this)>;
+        uint16 VALUE <fgcolor=cWhite, bgcolor=cDkPurple, comment=Str("value: \"%s\"", GetStr(this))>;
     } else {  // has child node: GMET body relative offset
-        uint16 CHILD_NODE_OFS <format=hex, bgcolor=cLtYellow, comment=GetStr(ReadUShort(gmet_body_ofs + this))>;  // comment: get name string of child node
+        uint16 VALUE <format=hex, bgcolor=cLtYellow, comment=Str("child node name: %s", GetStr(ReadUShort(gmet_body_ofs + this)))>;  // comment: get name string of child node
     }
 };
 
