@@ -65,7 +65,7 @@ Artdink 사의 전용 포맷으로 보이는 gop 파일의 바이너리 파일 �
 |    이름    |   자료형    | 크기/길이  | 설명                                                                                                      |
 |:----------:|:-----------:|:----------:|:----------------------------------------------------------------------------------------------------------|
 |  NAME_IDX  |   uint16    |     2      | 해당 노드의 이름의 `GENESTRT` 테이블 상 인덱스 번호이다.                                                  |
-| ITEM_COUNT |   uint16    |     2      | 해당 노드가 포함하는 값 혹은 자식 노드의 개수이다.<br>값을 포함하는 리프노드인 경우 이 값은 항상 `1`이다. |
+| ITEM_COUNT |   uint16    |     2      | 해당 노드가 포함하는 값 혹은 자식 노드의 개수이다.<br>값을 포함하는 리프노드의 경우 값의 개수이며, 그 외 노드는 자식 노드의 개수이다. |
 | ITEM_LIST  | GMET_ITEM[] | ITEM_COUNT | 해당 노드의 값 혹은 자식 노드 리스트이다.                                                                 |
 
 #### GMET_ITEM
@@ -142,7 +142,7 @@ Artdink 사의 전용 포맷으로 보이는 gop 파일의 바이너리 파일 �
 
 > [!NOTE]
 > `APK`와 달리 `STRING_OFS_LIST`의 크기는 `STRING_COUNT + 1`이다.
-> 추가된 마지막 항목에는 마지막 원소 다음에 가상의 원소가 있다 가정할 때, 그 원소의 오프셋이 들어간다.
+> 추가된 마지막 항목에는 `STRING_LIST` 전체의 바이트 길이가 들어간다.
 > 간단히 말하면 `STRING_LIST`의 크기값이 기본적인 `STRING_OFS_LIST` 원소 뒤에 추가된다
 
 문자열은 아래와 같은 순서로 정렬된다.
@@ -162,8 +162,8 @@ Artdink 사의 전용 포맷으로 보이는 gop 파일의 바이너리 파일 �
 |   TABLE_SIZE    |  uint64  |      8       | Body의 크기로, 각 필드의 크기(바이트)를 아래 식에 넣어 계산할 수 있다.<br>`align16(sizeof(RECORD_SIZE) + sizeof(RECORD_COUNT) + sizeof(INDEX_LIST_OFS) + sizeof(RECORD_LIST_OFS) + align16(arrsize(INDEX_LIST)) + align16(arrsize(RECORD_LIST)))` |
 |   RECORD_SIZE   |  uint32  |      4       | 레코드 하나의 크기로 항상 4의 배수여야한다.                                                                                                                                                                                                       |
 |  RECORD_COUNT   |  uint32  |      4       | 레코드의 개수이다.                                                                                                                                                                                                                                |
-| INDEX_LIST_OFS  |  uint32  |      4       | 테이블 Body를 기준점으로 하는 `INDEX_LIST` 필드의 시작 오프셋이다.                                                                                                                                                                                |
-| RECORD_LIST_OFS |  uint32  |      4       | 테이블 Body를 기준점으로 하는 `RECORD_LIST` 필드의 시작 오프셋이다.                                                                                                                                                                               |
+| INDEX_LIST_OFS  |  uint32  |      4       | 테이블 Body를 기준점으로 하는 `INDEX_LIST` 필드의 시작 오프셋이다.<br>항상 `16`이다.                                                                                                                                                              |
+| RECORD_LIST_OFS |  uint32  |      4       | 테이블 Body를 기준점으로 하는 `RECORD_LIST` 필드의 시작 오프셋이다.<br>`align16(16 + (4 * RECORD_COUNT))`이다.                                                                                                                                    |
 |   INDEX_LIST    | uint32[] | RECORD_COUNT | 각 레코드의 `SelfId` 문자열의 바이트 기준으로 오름차순 정렬 후 그 순서대로 행의 번호를 나열한 부분이다.                                                                                                                                           |
 | INDEX_LIST_PAD  |    ?     |      ?       | `INDEX_LIST`의 끝이 16바이트에 정렬되도록 나머지 공간을 `0`으로 패딩하는 부분이다.                                                                                                                                                                |
 |   RECORD_LIST   | RECORD[] | RECORD_COUNT | 레코드들의 나열이다. 나열되는 순서가 곧 행 번호이다.                                                                                                                                                                                              |
