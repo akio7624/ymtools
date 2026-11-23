@@ -15,7 +15,7 @@ from ymtools.src.gop.exceptions import GopDumpException
 from ymtools.src.gop.gop import GOP
 from ymtools.src.gop.utils import MetaNode, build_meta_tree, get_column_sizes, read_rows
 
-__all__ = ["build_workbook"]
+__all__ = ["build_workbook", "autofit"]
 log = logging.getLogger(__name__)
 
 NULL_MARK = "<null>"
@@ -43,7 +43,7 @@ def build_workbook(gop: GOP) -> Workbook:
     _make_gfin(wb.create_sheet("GFIN"), gop)
 
     for ws in wb.worksheets:
-        _autofit(ws)
+        autofit(ws)
     _protect(wb, col_types)
 
     wb.properties.creator = None
@@ -146,7 +146,7 @@ def _make_gfin(ws: Worksheet, gop: GOP) -> None:
 
 
 # ====================== layout ======================
-def _autofit(ws: Worksheet, padding: int = 3, max_width: int = 255) -> None:
+def autofit(ws: Worksheet, padding: int = 3, max_width: int = 255, grow_only: bool = False) -> None:
     widths: dict[str, int] = {}
     for row in ws.iter_rows():
         for cell in row:
@@ -154,7 +154,8 @@ def _autofit(ws: Worksheet, padding: int = 3, max_width: int = 255) -> None:
                 width = sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in str(cell.value)) + (1 if cell.font.bold else 0)
                 widths[cell.column_letter] = max(widths.get(cell.column_letter, 0), width)
     for letter, width in widths.items():
-        ws.column_dimensions[letter].width = min(width + padding, max_width)
+        current = ws.column_dimensions[letter].width if grow_only and letter in ws.column_dimensions else 0
+        ws.column_dimensions[letter].width = max(min(width + padding, max_width), current or 0)
 
 
 def _protect(wb: Workbook, col_types: list[ColumnType | None]) -> None:

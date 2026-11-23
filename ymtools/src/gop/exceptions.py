@@ -1,6 +1,6 @@
 from ymtools.src.apkidx.structure.exceptions import ValidationException
 
-__all__ = ["GopException", "GopDumpException"]
+__all__ = ["GopException", "GopDumpException", "GopPatchException"]
 
 
 class GopException(ValidationException):
@@ -9,3 +9,7 @@ class GopException(ValidationException):
 
 class GopDumpException(Exception):
     pass
+
+
+class GopPatchException(ValidationException):
+    LABEL = "GOP patch"

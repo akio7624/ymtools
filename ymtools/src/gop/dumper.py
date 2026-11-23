@@ -22,44 +22,52 @@ gop 덤프 과정 정리
 3. 임시 파일에 저장한다
 4. 임시파일을 출력 파일로 이름 바꾼다(중간에 실패하면 지워져야함)
 5. 끝
+
+출력 경로
+- 형식을 지정하지 않으면 xlsx와 txt를 모두 만들며, 출력 경로는 디렉터리이고 파일 이름은 gop 파일과 같다(확장자만 다름)
+- 형식을 지정하면 출력 경로는 파일이다. 단 출력 경로가 이미 존재하는 디렉터리이면 위와 같이 gop 파일의 이름을 사용한다
 """
 
 
 class GopDumper:
-    def __init__(self, input_path: Path, output_path: Path, fmt: str = "xlsx") -> None:
+    def __init__(self, input_path: Path, output_path: Path, fmt: str | None = None) -> None:
         if not input_path.name.endswith(".gop"):
             raise GopDumpException(f"This is not gop file: {input_path}")
-        if fmt not in ("xlsx", "txt"):
+        if fmt not in (None, "xlsx", "txt"):
             raise GopDumpException(f"The output format '{fmt}' is not supported. Use 'xlsx' or 'txt'")
+
         self.INPUT_PATH = input_path
-        self.OUTPUT_PATH = output_path
-        self.TEMP_PATH = output_path.with_name(output_path.name + ".tmp")
-        self.FORMAT = fmt
+        if fmt is None or output_path.is_dir():
+            if output_path.exists() and not output_path.is_dir():
+                raise GopDumpException(f"The output path must be a directory: {output_path}")
+            self.OUTPUT_PATHS = {f: output_path / f"{input_path.stem}.{f}" for f in ([fmt] if fmt else ["xlsx", "txt"])}
+        else:
+            self.OUTPUT_PATHS = {fmt: output_path}
 
     def run(self) -> int:
         log.info("GopDumper starting")
 
-        if self.OUTPUT_PATH.resolve() == self.INPUT_PATH.resolve():
-            raise GopDumpException(f"The output path must not be the same as the input path: {self.OUTPUT_PATH}")
+        if self.INPUT_PATH.resolve() in {path.resolve() for path in self.OUTPUT_PATHS.values()}:
+            raise GopDumpException(f"The output path must not be the same as the input path: {self.INPUT_PATH}")
 
         gop = GOP.read_gop(self.INPUT_PATH)
         log.info(f"Columns: {gop.get_grec().COLUMN_COUNT}, Records: {gop.get_gdat().RECORD_COUNT}")
 
-        log.info(f"Make {self.FORMAT}")
-        wb = build_workbook(gop) if self.FORMAT == "xlsx" else None
-        text = build_text(gop) if self.FORMAT == "txt" else ""
-
-        self.OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_paths = {fmt: path.with_name(path.name + ".tmp") for fmt, path in self.OUTPUT_PATHS.items()}
         try:
-            log.info(f"Write {self.FORMAT}")
-            if wb is not None:
-                wb.save(self.TEMP_PATH)
-            else:
-                self.TEMP_PATH.write_text(text, encoding="utf-8", newline="\n")
-            self.TEMP_PATH.replace(self.OUTPUT_PATH)
+            for fmt, path in self.OUTPUT_PATHS.items():
+                log.info(f"Make {fmt}: {path}")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if fmt == "xlsx":
+                    build_workbook(gop).save(temp_paths[fmt])
+                else:
+                    temp_paths[fmt].write_text(build_text(gop), encoding="utf-8", newline="\n")
+            for fmt, path in self.OUTPUT_PATHS.items():
+                temp_paths[fmt].replace(path)
         except BaseException:
-            self.TEMP_PATH.unlink(missing_ok=True)
+            for temp_path in temp_paths.values():
+                temp_path.unlink(missing_ok=True)
             raise
 
-        log.info("GopDumper finished: %s", self.OUTPUT_PATH)
+        log.info("GopDumper finished")
         return 0

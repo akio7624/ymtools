@@ -17,6 +17,7 @@ from ymtools.src.apkidx.structure.idx import IDX
 from ymtools.src.apkidx.unpacker.unpack import Unpacker
 from ymtools.src.gop.dumper import GopDumper
 from ymtools.src.gop.exceptions import GopDumpException
+from ymtools.src.gop.patcher import GopPatcher
 from ymtools.src.logger import setup_cli_logging
 
 log = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ def run_gop_dump(args: argparse.Namespace) -> int:
     return GopDumper(args.input, args.output, args.format).run()
 
 
+def run_gop_patch_xlsx(args: argparse.Namespace) -> int:
+    return GopPatcher(args.txt, args.xlsx, args.output).run()
+
+
 def run_gop_gen(args: argparse.Namespace) -> int:
     # TODO
     return 0
@@ -127,11 +132,18 @@ def main(argv: list[str] | None = None) -> int:
     idx_checker.set_defaults(handler=run_apk_check_idx)
 
     # sub commend for gop dumper
-    gop_dump = sub_cmd.add_parser("gop-dump", help="Dump a gop file into an xlsx or txt file")
+    gop_dump = sub_cmd.add_parser("gop-dump", help="Dump a gop file into xlsx and txt files")
     gop_dump.add_argument("-i", "--input", type=Path, required=True, help="Path to the input gop file")
-    gop_dump.add_argument("-o", "--output", type=Path, required=True, help="Path to the output file")
-    gop_dump.add_argument("-f", "--format", choices=["xlsx", "txt"], default="xlsx", help="Output format. Only xlsx can be used with gop-gen (default: %(default)s)")
+    gop_dump.add_argument("-o", "--output", type=Path, required=True, help="Directory to write the files into. The file names are the same as the gop file. If --format is given, it may be the path of the output file instead")
+    gop_dump.add_argument("-f", "--format", choices=["xlsx", "txt"], default=None, help="Dump only this format (default: both xlsx and txt). Only xlsx can be used with gop-gen")
     gop_dump.set_defaults(handler=run_gop_dump)
+
+    # sub commend for patching xlsx with txt
+    patch_xlsx = sub_cmd.add_parser("patch-xlsx", help="Patch the values of an xlsx file created by gop-dump with an edited txt file")
+    patch_xlsx.add_argument("-x", "--xlsx", type=Path, required=True, help="Path to the xlsx file to patch")
+    patch_xlsx.add_argument("-t", "--txt", type=Path, required=True, help="Path to the txt file created by gop-dump. Its columns and record count must be the same as the xlsx file")
+    patch_xlsx.add_argument("-o", "--output", type=Path, required=False, help="Path to the output xlsx file (default: overwrite the input xlsx file)")
+    patch_xlsx.set_defaults(handler=run_gop_patch_xlsx)
 
     # sub commend for gop generator
     gop_gen = sub_cmd.add_parser("gop-gen", help="Generate a gop file from an xlsx file created by gop-dump")
