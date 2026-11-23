@@ -21,8 +21,7 @@ log = logging.getLogger(__name__)
 """
 xlsx 레이아웃 정리
 - GDAT: 1행은 컬럼 이름, 2행부터 레코드. 셀 값 표현은 아래와 같다
-    - 정수는 숫자 셀, 단 64비트 정수는 엑셀 숫자 정밀도(15자리)를 넘으므로 텍스트 셀
-    - 실수는 숫자 셀, bool은 TRUE/FALSE 셀
+    - 정수와 실수는 숫자 셀, bool은 TRUE/FALSE 셀
     - RecId, String은 텍스트 셀, 빈 문자열은 빈 셀, null은 `<null>`
     - 벡터/색상은 JSON 배열 문자열(예: [1.0, 2.5, 0.0]), 알 수 없는 타입은 hex 문자열
 - GREC: Name, Type, TypeId, Offset, Size, Lang. 시트 전체가 잠긴다
@@ -100,7 +99,7 @@ def _autofit(ws: Worksheet, padding: int = 3, max_width: int = 255) -> None:
 def _is_text_column(col_type: ColumnType | None) -> bool:
     if col_type is None:
         return True  # unknown type: hex string
-    return col_type.KIND in ("string", "vec_int", "vec_float32") or col_type.ID in (6, 10)  # 64-bit integers
+    return col_type.KIND in ("string", "vec_int", "vec_float32")
 
 
 def _to_cell_value(col_type: ColumnType | None, value: object) -> object:
@@ -114,9 +113,7 @@ def _to_cell_value(col_type: ColumnType | None, value: object) -> object:
         return value if value != "" else None  # an empty string is an empty cell
     if kind in ("vec_int", "vec_float32"):
         return json.dumps(list(value))
-    if col_type.ID in (6, 10):
-        return str(value)
-    if kind in ("float32", "float64") and not (value == value and abs(value) != float("inf")):
+    if kind == "float32" and not (value == value and abs(value) != float("inf")):
         return str(value)  # nan / inf cannot be stored in a number cell
     return value
 

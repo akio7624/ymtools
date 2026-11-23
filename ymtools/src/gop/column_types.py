@@ -11,7 +11,6 @@ UNKNOWN_TYPE_NAME: Final[str] = "Unknown"
 
 KIND_INT: Final[str] = "int"
 KIND_FLOAT32: Final[str] = "float32"
-KIND_FLOAT64: Final[str] = "float64"
 KIND_BOOL: Final[str] = "bool"
 KIND_STRING: Final[str] = "string"  # RecId and String: index of GENESTRT, negative means null
 KIND_VEC_INT: Final[str] = "vec_int"
@@ -31,19 +30,17 @@ def _t(type_id: int, name: str, size: int, fmt: str, kind: str) -> tuple[int, Co
     return type_id, ColumnType(type_id, name, size, fmt, kind)
 
 
-# Types that are not listed here (0, 1, 16-21) are unknown. Their size can't be known from the type.
+# Only the types confirmed in the format document are listed. Any other type (0, 1, 6, 10, 12, 16-21, 26, 28, 30) is treated as unknown.
+# The size of an unknown type can't be known from the type.
 COLUMN_TYPES: Final[dict[int, ColumnType]] = dict([
     _t(2, "Enum", 4, "i", KIND_INT),
     _t(3, "Int8", 1, "b", KIND_INT),
     _t(4, "Int16", 2, "h", KIND_INT),
     _t(5, "Int32", 4, "i", KIND_INT),
-    _t(6, "Int64", 8, "q", KIND_INT),
     _t(7, "UInt8", 1, "B", KIND_INT),
     _t(8, "UInt16", 2, "H", KIND_INT),
     _t(9, "UInt32", 4, "I", KIND_INT),
-    _t(10, "UInt64", 8, "Q", KIND_INT),
     _t(11, "Float32", 4, "f", KIND_FLOAT32),
-    _t(12, "Float64", 8, "d", KIND_FLOAT64),
     _t(13, "bool", 1, "B", KIND_BOOL),
     _t(14, "RecId", 4, "i", KIND_STRING),
     _t(15, "String", 4, "i", KIND_STRING),
@@ -51,11 +48,8 @@ COLUMN_TYPES: Final[dict[int, ColumnType]] = dict([
     _t(23, "FRgb", 12, "3f", KIND_VEC_FLOAT32),
     _t(24, "Rgba", 4, "4B", KIND_VEC_INT),
     _t(25, "Rgb", 3, "3B", KIND_VEC_INT),
-    _t(26, "Vector2", 8, "2f", KIND_VEC_FLOAT32),
     _t(27, "Vector3", 12, "3f", KIND_VEC_FLOAT32),
-    _t(28, "Vector4", 16, "4f", KIND_VEC_FLOAT32),
     _t(29, "IVector2", 8, "2i", KIND_VEC_INT),
-    _t(30, "IVector3", 12, "3i", KIND_VEC_INT),
     _t(31, "IVector4", 16, "4i", KIND_VEC_INT),
 ])
 
@@ -84,8 +78,6 @@ def decode_cell(col_type: ColumnType, raw: bytes, string_list: list[str]) -> obj
         return values[0]
     if kind == KIND_FLOAT32:
         return to_float32_shortest(values[0])
-    if kind == KIND_FLOAT64:
-        return values[0]
     if kind == KIND_BOOL:
         if values[0] not in (0, 1):
             raise GopException(f"bool value must be 0 or 1, current: {values[0]}")
