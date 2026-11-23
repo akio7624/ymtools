@@ -1,0 +1,75 @@
+//   Purpose: Parse TRP file found in PS Vita game
+//  Category: Game
+// File Mask: *.TRP
+//  ID Bytes: DC A2 4D 00
+//   History:
+//   1.0   2026-12-01 Initial release
+//
+//------------------------------------------------
+//
+// For more detailed file structure information,
+// https://github.com/akio7624/ymtools
+//
+// This template was created based on the author & some references.
+// Although not all fields have been fully analyzed,
+// there should be no issues with extracting or packing files.
+// If you'd like to share additional information, please open issue on repository.
+// https://github.com/akio7624/ymtools
+
+
+typedef struct {
+    uint32 SIGNATURE <format=hex, bgcolor=cLtAqua>;
+    Assert(SIGNATURE == 0xDCA24D00, "SIGNATURE must be 0xDCA24D00");
+    uint32 VERSION <bgcolor=cLtYellow>;
+    Assert(VERSION == 2, "This template only support for version 2");
+    uint64 FILE_SIZE <format=hex, bgcolor=cLtGreen>;
+    uint32 FILE_COUNT <bgcolor=cLtPurple>;
+    uint32 ENTRY_SIZE <format=hex, bgcolor=cLtAqua>;
+    Assert(ENTRY_SIZE == 64, "The ENTRY_SIZE must be 40");
+    uint32 DEV_FLAG <bgcolor=cLtRed>;
+    uchar HASH[20] <format=hex, bgcolor=cLtBlue>;
+    uchar padding[16] <bgcolor=cLtGray>;
+} HEADER;
+
+
+typedef struct {
+    char FILE_NAME[16] <bgcolor=cLtYellow>;
+    char unknown_1[20] <bgcolor=cLtPurple>;
+    uint32 START_OFS <format=hex, bgcolor=cLtGreen>;
+    uint32 unknown_2 <bgcolor=cLtRed>;
+    uint32 FILE_SIZE <format=hex, bgcolor=cLtAqua>;
+    char PADDING[16] <bgcolor=cLtGray>;
+} FILE_ENTRY <read=this.FILE_NAME>;
+
+
+BigEndian();
+
+HEADER header;
+FILE_ENTRY entry[header.FILE_COUNT];
+
+
+uint64 GetAlign16Count() {
+    return (-FTell()) & 15;
+}
+
+
+struct _FILE_LIST {
+    local int i = 0;
+    local uint64 start_ofs, file_size, padding_count;
+
+    for (i=0; i<header.FILE_COUNT; i++) {
+        start_ofs = entry[i].START_OFS;
+        file_size = entry[i].FILE_SIZE;
+
+        FSeek(start_ofs);
+
+        struct _FILE {
+            byte data[file_size] <bgcolor=0x72bafb>;
+
+            padding_count = GetAlign16Count();
+            if (padding_count != 0 && !FEof()) {
+                byte padding[padding_count] <bgcolor=cLtAqua>;
+            }
+        } file;
+    }
+} FILES;
