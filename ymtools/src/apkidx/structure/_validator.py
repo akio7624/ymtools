@@ -1,8 +1,8 @@
 import logging
 
-from ymtools.src.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC
-from ymtools.src.structure.exceptions import ValidationException
-from ymtools.src.structure.utils import get_align16_size, sig_to_str
+from ymtools.src.apkidx.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC
+from ymtools.src.apkidx.structure.exceptions import ValidationException
+from ymtools.src.apkidx.structure.utils import get_align16_size, sig_to_str
 
 __all__ = [
     "validate_endiltle", "validate_packhedr", "validate_packtoc", "validate_toc_segments", "validate_toc_order",

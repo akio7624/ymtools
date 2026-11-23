@@ -1,8 +1,8 @@
 from io import BytesIO
 import struct
 
-from ymtools.src.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_SEGMENT
-from ymtools.src.structure.utils import get_align16_count
+from ymtools.src.apkidx.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_SEGMENT
+from ymtools.src.apkidx.structure.utils import get_align16_count
 
 
 """

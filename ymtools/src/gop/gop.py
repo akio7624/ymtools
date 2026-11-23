@@ -1,14 +1,14 @@
 import logging
 from pathlib import Path
 
+from ymtools.src.apkidx.structure._reader import read_geneeof
+from ymtools.src.apkidx.structure._tables import GENEEOF, GENESTRT
+from ymtools.src.apkidx.structure._validator import raise_if_invalid, validate_geneeof
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.gop._reader import read_gdat, read_genestrt, read_gfin, read_gmet, read_grec
 from ymtools.src.gop._tables import GOP_GDAT, GOP_GFIN, GOP_GMET, GOP_GREC
 from ymtools.src.gop._validator import validate_gdat, validate_genestrt, validate_gfin, validate_gmet, validate_grec
 from ymtools.src.gop.exceptions import GopException
-from ymtools.src.structure._reader import read_geneeof
-from ymtools.src.structure._tables import GENEEOF, GENESTRT
-from ymtools.src.structure._validator import raise_if_invalid, validate_geneeof
 
 __all__ = ["GOP", "GopException"]
 log = logging.getLogger(__name__)

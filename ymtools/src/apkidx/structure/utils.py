@@ -1,7 +1,7 @@
 import math
 from pathlib import Path
 
-from ymtools.src.structure._tables import GENESTRT, TOC_SEGMENT
+from ymtools.src.apkidx.structure._tables import GENESTRT, TOC_SEGMENT
 
 
 def get_align16_count(ofs: int) -> int:

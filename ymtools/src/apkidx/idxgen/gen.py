@@ -3,12 +3,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ymtools.src.apkidx.idxgen.exceptions import IdxGenException
+from ymtools.src.apkidx.structure import ENDILTLE, FS_SEGMENT, GENEEOF, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
+from ymtools.src.apkidx.structure import make_endiltle, make_geneeof, make_genestrt, make_packfsls, make_packhedr, make_packtoc
+from ymtools.src.apkidx.structure.apk import APK
+from ymtools.src.apkidx.structure.utils import build_genestrt, get_align16_size
 from ymtools.src.binutils.BinaryWriter import BinaryWriter
-from ymtools.src.idxgen.exceptions import IdxGenException
-from ymtools.src.structure import ENDILTLE, FS_SEGMENT, GENEEOF, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
-from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfsls, make_packhedr, make_packtoc
-from ymtools.src.structure.apk import APK
-from ymtools.src.structure.utils import build_genestrt, get_align16_size
 
 log = logging.getLogger(__name__)
 

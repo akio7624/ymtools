@@ -1,9 +1,9 @@
 import struct
 
+from ymtools.src.apkidx.structure._tables import GENESTRT
+from ymtools.src.apkidx.structure.utils import get_align16_count
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.gop._tables import GMET_ITEM, GMET_NODE, GOP_GDAT, GOP_GFIN, GOP_GMET, GOP_GREC, GREC_COLUMN
-from ymtools.src.structure._tables import GENESTRT
-from ymtools.src.structure.utils import get_align16_count
 
 __all__ = ["read_gfin", "read_gmet", "read_grec", "read_genestrt", "read_gdat"]
 

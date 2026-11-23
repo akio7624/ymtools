@@ -6,18 +6,18 @@ import sys
 from pathlib import Path
 
 from ymtools.src import const
-from ymtools.src.logger import setup_cli_logging
+from ymtools.src.apkidx.idxgen.exceptions import IdxGenException
+from ymtools.src.apkidx.idxgen.gen import IdxGenerator
+from ymtools.src.apkidx.packer.exceptions import PackerException
+from ymtools.src.apkidx.packer.pack import Packer
+from ymtools.src.apkidx.structure import raise_if_invalid
+from ymtools.src.apkidx.structure.apk import APK
+from ymtools.src.apkidx.structure.exceptions import IdxException, ValidationException
+from ymtools.src.apkidx.structure.idx import IDX
+from ymtools.src.apkidx.unpacker.unpack import Unpacker
 from ymtools.src.gop.dumper import GopDumper
 from ymtools.src.gop.exceptions import GopDumpException
-from ymtools.src.structure import raise_if_invalid
-from ymtools.src.structure.apk import APK
-from ymtools.src.structure.exceptions import IdxException, ValidationException
-from ymtools.src.idxgen.exceptions import IdxGenException
-from ymtools.src.idxgen.gen import IdxGenerator
-from ymtools.src.packer.exceptions import PackerException
-from ymtools.src.packer.pack import Packer
-from ymtools.src.structure.idx import IDX
-from ymtools.src.unpacker.unpack import Unpacker
+from ymtools.src.logger import setup_cli_logging
 
 log = logging.getLogger(__name__)
 

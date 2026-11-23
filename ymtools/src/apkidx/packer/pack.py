@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ymtools.src import const
+from ymtools.src.apkidx.packer.exceptions import PackerException
+from ymtools.src.apkidx.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
+from ymtools.src.apkidx.structure import make_endiltle, make_geneeof, make_genestrt, make_packfshd, make_packfsls, make_packhedr, make_packtoc
+from ymtools.src.apkidx.structure.utils import build_genestrt, get_align16_size
 from ymtools.src.binutils.BinaryReader import BinaryReader
 from ymtools.src.binutils.BinaryWriter import BinaryWriter
-from ymtools.src.packer.exceptions import PackerException
-from ymtools.src.structure import ENDILTLE, FS_FILE_SEG, FS_SEGMENT, GENEEOF, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT
-from ymtools.src.structure import make_endiltle, make_geneeof, make_genestrt, make_packfshd, make_packfsls, make_packhedr, make_packtoc
-from ymtools.src.structure.utils import build_genestrt, get_align16_size
 
 log = logging.getLogger(__name__)
 

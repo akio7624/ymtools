@@ -4,10 +4,10 @@ import zlib
 from pathlib import Path
 
 from ymtools.src import const
+from ymtools.src.apkidx.structure.apk import APK
+from ymtools.src.apkidx.structure.exceptions import ApkException
+from ymtools.src.apkidx.structure.utils import walk_toc
 from ymtools.src.binutils.BinaryReader import BinaryReader
-from ymtools.src.structure.apk import APK
-from ymtools.src.structure.exceptions import ApkException
-from ymtools.src.structure.utils import walk_toc
 
 
 log = logging.getLogger(__name__)

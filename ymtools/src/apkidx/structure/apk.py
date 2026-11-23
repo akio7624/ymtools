@@ -3,12 +3,12 @@ import logging
 import struct
 from pathlib import Path
 
+from ymtools.src.apkidx.structure._reader import read_endiltle, read_geneeof, read_genestrt, read_packfsls, read_packhedr, read_packtoc
+from ymtools.src.apkidx.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, FS_FILE_SEG, TOC_SEGMENT
+from ymtools.src.apkidx.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_fs_segments, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order, validate_toc_segments
+from ymtools.src.apkidx.structure.exceptions import ApkException
+from ymtools.src.apkidx.structure.utils import get_align16_count, get_align16_size, sig_to_str
 from ymtools.src.binutils.BinaryReader import BinaryReader
-from ymtools.src.structure._reader import read_endiltle, read_geneeof, read_genestrt, read_packfsls, read_packhedr, read_packtoc
-from ymtools.src.structure._tables import ENDILTLE, FILE_SET, GENEEOF, GENESTRT, PACKFSHD, PACKFSLS, PACKHEDR, PACKTOC, FS_FILE_SEG, TOC_SEGMENT
-from ymtools.src.structure._validator import raise_if_invalid, validate_endiltle, validate_geneeof, validate_genestrt, validate_fs_segments, validate_packfsls, validate_packhedr, validate_packtoc, validate_toc_order, validate_toc_segments
-from ymtools.src.structure.exceptions import ApkException
-from ymtools.src.structure.utils import get_align16_count, get_align16_size, sig_to_str
 
 __all__ = ["APK", "ApkException"]
 log = logging.getLogger(__name__)

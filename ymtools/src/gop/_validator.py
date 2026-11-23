@@ -1,11 +1,11 @@
 import logging
 import struct
 
+from ymtools.src.apkidx.structure._tables import GENESTRT
+from ymtools.src.apkidx.structure.utils import get_align16_size, sig_to_str
 from ymtools.src.gop._tables import GOP_GDAT, GOP_GFIN, GOP_GMET, GOP_GREC
 from ymtools.src.gop.column_types import COLUMN_TYPES, KIND_BOOL, KIND_STRING
 from ymtools.src.gop.utils import get_column_sizes
-from ymtools.src.structure._tables import GENESTRT
-from ymtools.src.structure.utils import get_align16_size, sig_to_str
 
 __all__ = ["validate_gfin", "validate_gmet", "validate_grec", "validate_genestrt", "validate_gdat"]
 log = logging.getLogger(__name__)

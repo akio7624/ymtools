@@ -1,4 +1,4 @@
-from ymtools.src.structure.exceptions import ValidationException
+from ymtools.src.apkidx.structure.exceptions import ValidationException
 
 __all__ = ["GopException", "GopDumpException"]
 

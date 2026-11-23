@@ -1,8 +1,8 @@
 import struct
 
+from ymtools.src.apkidx.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_SEGMENT
+from ymtools.src.apkidx.structure.utils import get_align16_count
 from ymtools.src.binutils.BinaryReader import BinaryReader
-from ymtools.src.structure._tables import ENDILTLE, GENEEOF, GENESTRT, PACKFSLS, PACKHEDR, PACKTOC, TOC_SEGMENT, FS_SEGMENT
-from ymtools.src.structure.utils import get_align16_count
 
 __all__ = ["read_endiltle", "read_packhedr", "read_packtoc", "read_packfsls", "read_genestrt", "read_geneeof"]
 

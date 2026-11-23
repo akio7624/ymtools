@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ymtools.src.structure._tables import TABLE_HEADER
+from ymtools.src.apkidx.structure._tables import TABLE_HEADER
 from ymtools.src.typealias.ctype import uint16, uint32
 
 
