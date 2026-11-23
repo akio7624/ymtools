@@ -1,5 +1,11 @@
-__all__ = ["GopException"]
+from ymtools.src.structure.exceptions import ValidationException
+
+__all__ = ["GopException", "GopDumpException"]
 
 
-class GopException(Exception):
+class GopException(ValidationException):
+    LABEL = "GOP"
+
+
+class GopDumpException(Exception):
     pass

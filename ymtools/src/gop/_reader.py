@@ -1,104 +1,177 @@
 import struct
 
 from ymtools.src.binutils.BinaryReader import BinaryReader
-from ymtools.src.gop._tables import GENESTRT, GMET_ITEM, GMET_NODE, GOP_GDAT, GOP_GFIN, GOP_GMET, GOP_GREC, GREC_COLUMN
-from ymtools.src.gop.exceptions import GopException
+from ymtools.src.gop._tables import GMET_ITEM, GMET_NODE, GOP_GDAT, GOP_GFIN, GOP_GMET, GOP_GREC, GREC_COLUMN
+from ymtools.src.structure._tables import GENESTRT
+from ymtools.src.structure.utils import get_align16_count
 
-__all__ = ["read_table", "parse_gfin", "parse_gmet", "parse_grec", "parse_genestrt", "parse_gdat"]
+__all__ = ["read_gfin", "read_gmet", "read_grec", "read_genestrt", "read_gdat"]
 
 
 """
-각 테이블은 16바이트 헤더(SIGNATURE, TABLE_SIZE)와 TABLE_SIZE 만큼의 Body로 이루어진다.
-read_table()이 헤더를 읽고 Body를 통째로 바이트로 가져오며, parse_*() 함수들이 Body를 해석한다.
-Body 안의 오프셋은 모두 Body의 시작점을 기준으로 한다.
-패딩은 별도로 보관하지 않는다.
+패딩은 별도로 테이블에 넣지 않는걸로 한다. 단 GENESTRT와 GDAT는 리스트 사이에 패딩이 있어 검증을 위해 따로 보관한다.
+GENEEOF는 apk와 동일하므로 structure의 read_geneeof()를 그대로 사용한다.
 """
 
 
-def read_table(br: BinaryReader, file_size: int) -> tuple[bytes, bytes]:
-    signature, table_size = br.read_struct(struct.Struct("<8sQ"))
-    if table_size > file_size - br.tell():
-        raise GopException(f"TABLE_SIZE of the table '{signature.decode('ascii', 'replace')}' ({table_size}) exceeds the rest of the file({file_size - br.tell()} bytes)")
-    return signature, br.read_bytes(table_size)
+def read_gfin(br: BinaryReader) -> GOP_GFIN:
+    return GOP_GFIN(
+        SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+        TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+        VERSION=br.read_struct(struct.Struct("<I"))[0],
+        unknown_1=br.read_struct(struct.Struct("<I"))[0],
+        unknown_2=br.read_struct(struct.Struct("<I"))[0],
+        unknown_3=br.read_struct(struct.Struct("<I"))[0],
+    )
 
 
-def parse_gfin(body: bytes) -> GOP_GFIN:
-    if len(body) < 16:
-        raise GopException(f"GOP GFIN body is too short: {len(body)} bytes")
-    version, unknown_1, unknown_2, unknown_3 = struct.unpack_from("<4I", body, 0)
-    return GOP_GFIN(VERSION=version, unknown_1=unknown_1, unknown_2=unknown_2, unknown_3=unknown_3)
+def read_gmet(br: BinaryReader) -> GOP_GMET:
+    gmet_ofs = br.tell()
+    br.seek(gmet_ofs + 8 + 8)
+
+    # there is no node count, but the nodes are stored in DFS order so the children follow their parent
+    node_list: list[GMET_NODE] = []
+
+    def read_node() -> None:
+        name_idx, item_count = br.read_struct(struct.Struct("<HH"))
+        item_list = [GMET_ITEM(KIND=kind, VALUE=value) for kind, value in br.iter_struct(struct.Struct("<HH"), item_count)]
+        node_list.append(GMET_NODE(NAME_IDX=name_idx, ITEM_COUNT=item_count, ITEM_LIST=item_list))
+        for item in item_list:
+            if item.KIND == 1:
+                read_node()
+
+    read_node()
+    node_list_end = br.tell()
+
+    # go to start of GMET
+    br.seek(gmet_ofs)
+    gmet = GOP_GMET(
+        SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+        TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+        NODE_LIST=node_list,
+    )
+    br.seek(node_list_end)
+    br.skip(get_align16_count(br.tell()))
+    return gmet
 
 
-def parse_gmet(body: bytes) -> GOP_GMET:
-    def read_node(ofs: int, parents: frozenset[int]) -> GMET_NODE:
-        if ofs in parents:
-            raise GopException(f"GOP GMET has a cycle at offset {ofs}")
-        if ofs + 4 > len(body):
-            raise GopException(f"GOP GMET node offset {ofs} is out of range(body size: {len(body)})")
-        name_idx, item_count = struct.unpack_from("<HH", body, ofs)
-        if ofs + 4 + (4 * item_count) > len(body):
-            raise GopException(f"GOP GMET node at offset {ofs} has {item_count} item(s) but the body is too short")
+def read_grec(br: BinaryReader) -> GOP_GREC:
+    grec_ofs = br.tell()
+    column_count_ofs = grec_ofs + 8 + 8
+    column_list_ofs = grec_ofs + 8 + 8 + 4
 
-        item_list: list[GMET_ITEM] = []
-        for i in range(item_count):
-            kind, value = struct.unpack_from("<HH", body, ofs + 4 + (4 * i))
-            if kind == 0:
-                item_list.append(GMET_ITEM(KIND=0, VALUE=value))
-            elif kind == 1:
-                item_list.append(GMET_ITEM(KIND=1, VALUE=value, CHILD=read_node(value, parents | {ofs})))
-            else:
-                raise GopException(f"GOP GMET item KIND must be 0 or 1, current: {kind} (node offset: {ofs})")
-        return GMET_NODE(NAME_IDX=name_idx, ITEM_LIST=item_list)
+    # read column_count first for iter_struct()
+    br.seek(column_count_ofs)
+    column_count = br.read_uint32()
 
-    return GOP_GMET(ROOT=read_node(0, frozenset()))
+    # then read column_list
+    column_list: list[GREC_COLUMN] = []
+    br.seek(column_list_ofs)
+    for tp in br.iter_struct(struct.Struct("<IIHH"), column_count):
+        TYPE, OFFSET, NAME_IDX, LANG_FLAG = tp
 
+        column_list.append(GREC_COLUMN(
+            TYPE=TYPE,
+            OFFSET=OFFSET,
+            NAME_IDX=NAME_IDX,
+            LANG_FLAG=LANG_FLAG,
+        ))
 
-def parse_grec(body: bytes) -> GOP_GREC:
-    if len(body) < 4:
-        raise GopException(f"GOP GREC body is too short: {len(body)} bytes")
-    column_count = struct.unpack_from("<I", body, 0)[0]
-    if 4 + (12 * column_count) > len(body):
-        raise GopException(f"GOP GREC has {column_count} column(s) but the body is too short")
-
-    column_list = [
-        GREC_COLUMN(TYPE=type_id, OFFSET=offset, NAME_IDX=name_idx, LANG_FLAG=lang_flag)
-        for type_id, offset, name_idx, lang_flag in struct.iter_unpack("<IIHH", body[4:4 + (12 * column_count)])
-    ]
-    return GOP_GREC(COLUMN_LIST=column_list)
+    # go to start of GREC
+    br.seek(grec_ofs)
+    grec = GOP_GREC(
+        SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+        TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+        COLUMN_COUNT=br.read_struct(struct.Struct("<I"))[0],
+        COLUMN_LIST=column_list,
+    )
+    br.skip(12 * grec.COLUMN_COUNT)
+    br.skip(get_align16_count(br.tell()))
+    return grec
 
 
-def parse_genestrt(body: bytes) -> GENESTRT:
-    if len(body) < 16:
-        raise GopException(f"GENESTRT body is too short: {len(body)} bytes")
-    string_count, string_ofs_list_ofs, string_list_ofs, _ = struct.unpack_from("<4I", body, 0)
-    if string_ofs_list_ofs + (4 * (string_count + 1)) > len(body):
-        raise GopException(f"GENESTRT has {string_count} string(s) but the offset list does not fit in the body")
+def read_genestrt(br: BinaryReader) -> GENESTRT:
+    genestrt_ofs = br.tell()
+    string_count_ofs = genestrt_ofs + 8 + 8
 
-    string_ofs_list = struct.unpack_from(f"<{string_count + 1}I", body, string_ofs_list_ofs)
+    # read string_count first for iter_struct()
+    br.seek(string_count_ofs)
+    string_count = br.read_uint32()
+    br.skip(4)
+    string_list_ofs = genestrt_ofs + 8 + 8 + br.read_uint32()
+
+    # parse string_ofs_list, unlike apk it has one more element for the size of string_list
+    string_ofs_list_ofs = genestrt_ofs + 8 + 8 + 4 + 4 + 4 + 4
+    br.seek(string_ofs_list_ofs)
+    string_ofs_list = [x[0] for x in br.iter_struct(struct.Struct("<I"), string_count + 1)]
+    string_ofs_list_pad = br.read_bytes(get_align16_count(br.tell()))
+
+    # parse string_list
     string_list: list[str] = []
-    for i in range(string_count):
-        start = string_list_ofs + string_ofs_list[i]
-        end = body.find(b"\x00", start)
-        if start >= len(body) or end == -1:
-            raise GopException(f"GENESTRT string #{i} is not terminated within the body")
-        try:
-            string_list.append(body[start:end].decode("utf-8"))
-        except UnicodeDecodeError as e:
-            raise GopException(f"GENESTRT string #{i} is not valid UTF-8: {e}") from e
-    return GENESTRT(STRING_LIST=string_list)
+    br.seek(string_list_ofs)
+    for _ in range(string_count):
+        buf: bytearray = bytearray()
+        while True:
+            c: bytes = br.read_bytes(1)
+            if c == b'\x00':
+                break
+            buf.extend(c)
+        string_list.append(buf.decode("utf-8"))
+    string_list_end = br.tell()
+    string_list_pad = br.read_bytes(get_align16_count(string_list_end))
+
+    br.seek(genestrt_ofs)
+    genestrt = GENESTRT(
+        SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+        TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+        STRING_COUNT=br.read_struct(struct.Struct("<I"))[0],
+        STRING_OFS_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+        STRING_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+        TABLE_SIZE_2=br.read_struct(struct.Struct("<I"))[0],
+        STRING_OFS_LIST=string_ofs_list,
+        STRING_OFS_LIST_PAD=string_ofs_list_pad,
+        STRING_LIST=string_list,
+        STRING_LIST_PAD=string_list_pad,
+    )
+    br.seek(string_list_end + len(string_list_pad))  # skip STRING_LIST and its padding
+    return genestrt
 
 
-def parse_gdat(body: bytes) -> GOP_GDAT:
-    if len(body) < 16:
-        raise GopException(f"GOP GDAT body is too short: {len(body)} bytes")
-    record_size, record_count, index_list_ofs, record_list_ofs = struct.unpack_from("<4I", body, 0)
-    if record_size == 0 and record_count != 0:
-        raise GopException(f"GOP GDAT RECORD_SIZE is 0 but RECORD_COUNT is {record_count}")
-    if index_list_ofs + (4 * record_count) > len(body):
-        raise GopException(f"GOP GDAT has {record_count} record(s) but the index list does not fit in the body")
-    if record_list_ofs + (record_size * record_count) > len(body):
-        raise GopException(f"GOP GDAT has {record_count} record(s) of {record_size} bytes but the record list does not fit in the body")
+def read_gdat(br: BinaryReader) -> GOP_GDAT:
+    gdat_ofs = br.tell()
+    record_size_ofs = gdat_ofs + 8 + 8
 
-    index_list = list(struct.unpack_from(f"<{record_count}I", body, index_list_ofs))
-    record_list = [body[record_list_ofs + (record_size * i):record_list_ofs + (record_size * (i + 1))] for i in range(record_count)]
-    return GOP_GDAT(RECORD_SIZE=record_size, RECORD_COUNT=record_count, INDEX_LIST=index_list, RECORD_LIST=record_list)
+    # read the sizes and offsets first for the lists
+    br.seek(record_size_ofs)
+    record_size = br.read_uint32()
+    record_count = br.read_uint32()
+    index_list_ofs = gdat_ofs + 8 + 8 + br.read_uint32()
+    record_list_ofs = gdat_ofs + 8 + 8 + br.read_uint32()
+
+    # parse index_list
+    br.seek(index_list_ofs)
+    index_list = [x[0] for x in br.iter_struct(struct.Struct("<I"), record_count)]
+    index_list_pad = br.read_bytes(get_align16_count(br.tell()))
+
+    # parse record_list
+    br.seek(record_list_ofs)
+    records = br.read_bytes(record_size * record_count)
+    record_list = [records[i * record_size:(i + 1) * record_size] for i in range(record_count)]
+    record_list_end = br.tell()
+    gdat_pad = br.read_bytes(get_align16_count(record_list_end))
+
+    br.seek(gdat_ofs)
+    gdat = GOP_GDAT(
+        SIGNATURE=br.read_struct(struct.Struct("<8s"))[0],
+        TABLE_SIZE=br.read_struct(struct.Struct("<Q"))[0],
+        RECORD_SIZE=br.read_struct(struct.Struct("<I"))[0],
+        RECORD_COUNT=br.read_struct(struct.Struct("<I"))[0],
+        INDEX_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+        RECORD_LIST_OFS=br.read_struct(struct.Struct("<I"))[0],
+        INDEX_LIST=index_list,
+        INDEX_LIST_PAD=index_list_pad,
+        RECORD_LIST=record_list,
+        GDAT_PAD=gdat_pad,
+    )
+    br.seek(record_list_end + len(gdat_pad))  # skip RECORD_LIST and its padding
+    return gdat

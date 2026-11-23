@@ -8,7 +8,7 @@ from pathlib import Path
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
 from ymtools.src.gop.dumper import GopDumper
-from ymtools.src.gop.exceptions import GopException
+from ymtools.src.gop.exceptions import GopDumpException
 from ymtools.src.structure import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
@@ -158,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except ValidationException:
         return 1
-    except (PackerException, IdxGenException, GopException) as e:
+    except (PackerException, IdxGenException, GopDumpException) as e:
         log.error(str(e))
         return 1
     finally:
