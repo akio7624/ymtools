@@ -7,6 +7,8 @@ from pathlib import Path
 
 from ymtools.src import const
 from ymtools.src.logger import setup_cli_logging
+from ymtools.src.gop.dumper import GopDumper
+from ymtools.src.gop.exceptions import GopException
 from ymtools.src.structure import raise_if_invalid
 from ymtools.src.structure.apk import APK
 from ymtools.src.structure.exceptions import IdxException, ValidationException
@@ -70,8 +72,7 @@ def run_apk_check_idx(args: argparse.Namespace) -> int:
 
 
 def run_gop_dump(args: argparse.Namespace) -> int:
-    # TODO
-    return 0
+    return GopDumper(args.input, args.output, args.format).run()
 
 
 def run_gop_gen(args: argparse.Namespace) -> int:
@@ -157,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except ValidationException:
         return 1
-    except (PackerException, IdxGenException) as e:
+    except (PackerException, IdxGenException, GopException) as e:
         log.error(str(e))
         return 1
     finally:
