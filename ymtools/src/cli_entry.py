@@ -45,27 +45,42 @@ def print_env(args: argparse.Namespace) -> None:
             log.debug(f"  {key}: {value!r}")
 
 
-def run_unpack(args: argparse.Namespace) -> int:
+def run_apk_unpack(args: argparse.Namespace) -> int:
     return Unpacker(args.input, args.output, args.worker_num).run()
 
 
-def run_pack(args: argparse.Namespace) -> int:
+def run_apk_pack(args: argparse.Namespace) -> int:
     return Packer(args.input, args.output).run()
 
 
-def run_idxgen(args: argparse.Namespace) -> int:
+def run_apk_idxgen(args: argparse.Namespace) -> int:
     return IdxGenerator(args.input, args.output).run()
 
 
-def run_check_apk(args: argparse.Namespace) -> int:
+def run_apk_check_apk(args: argparse.Namespace) -> int:
     APK.read_apk(args.input)  # read_apk validates and raises on violations
     return 0
 
 
-def run_check_idx(args: argparse.Namespace) -> int:
+def run_apk_check_idx(args: argparse.Namespace) -> int:
     idx = IDX.read_idx(args.input)  # validates the basic structure; raises on violations
     violations = idx.validate_detail(args.input.parent, args.base)
     raise_if_invalid(violations, IdxException)
+    return 0
+
+
+def run_gop_dump(args: argparse.Namespace) -> int:
+    # TODO
+    return 0
+
+
+def run_gop_gen(args: argparse.Namespace) -> int:
+    # TODO
+    return 0
+
+
+def run_gop_check(args: argparse.Namespace) -> int:
+    # TODO
     return 0
 
 
@@ -81,34 +96,52 @@ def main(argv: list[str] | None = None) -> int:
     sub_cmd = parser.add_subparsers(dest="command", required=True)
 
     # sub commend for unpacker
-    unpack = sub_cmd.add_parser("unpack", help="Unpack an apk file")
+    unpack = sub_cmd.add_parser("apk-unpack", help="Unpack an apk file")
     unpack.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
     unpack.add_argument("-o", "--output", type=Path, required=True, help="Directory to extract files into")
     unpack.add_argument("-w", "--worker-num", type=int, default=2, help="Number of worker processes (default: %(default)s)")
-    unpack.set_defaults(handler=run_unpack)
+    unpack.set_defaults(handler=run_apk_unpack)
 
     # sub commend for packer
-    pack = sub_cmd.add_parser("pack", help="Pack a directory into a single apk file")
+    pack = sub_cmd.add_parser("apk-pack", help="Pack a directory into a single apk file")
     pack.add_argument("-i", "--input", type=Path, required=True, help="Path to the source directory. It must have the same layout as the output of the unpack command")
     pack.add_argument("-o", "--output", type=Path, required=True, help="Path to the output apk file")
-    pack.set_defaults(handler=run_pack)
+    pack.set_defaults(handler=run_apk_pack)
 
     # sub commend for idx generator
-    idxgen = sub_cmd.add_parser("idxgen", help="Generate an idx file from apk files")
+    idxgen = sub_cmd.add_parser("idx-gen", help="Generate an idx file from apk files")
     idxgen.add_argument("-i", "--input", type=Path, nargs="+", required=True, help="Paths to the input apk files. They are merged into one idx file")
     idxgen.add_argument("-o", "--output", type=Path, required=True, help="Path to the output idx file")
-    idxgen.set_defaults(handler=run_idxgen)
+    idxgen.set_defaults(handler=run_apk_idxgen)
 
     # sub commend for apk checker
     apk_checker = sub_cmd.add_parser("validate-apk", help="Validate an apk file. This may not be perfect")
     apk_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input apk file")
-    apk_checker.set_defaults(handler=run_check_apk)
+    apk_checker.set_defaults(handler=run_apk_check_apk)
 
     # sub commend for idx checker
     idx_checker = sub_cmd.add_parser("validate-idx", help="Validate an idx file. This may not be perfect")
     idx_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input idx file. The associated apk files are located automatically, relative to the location of the idx file")
     idx_checker.add_argument("-b", "--base", type=Path, required=False, help="Specifies the base path where the apk and idx files are located. See the documentation for details")
-    idx_checker.set_defaults(handler=run_check_idx)
+    idx_checker.set_defaults(handler=run_apk_check_idx)
+
+    # sub commend for gop dumper
+    gop_dump = sub_cmd.add_parser("gop-dump", help="Dump a gop file into an xlsx or txt file")
+    gop_dump.add_argument("-i", "--input", type=Path, required=True, help="Path to the input gop file")
+    gop_dump.add_argument("-o", "--output", type=Path, required=True, help="Path to the output file")
+    gop_dump.add_argument("-f", "--format", choices=["xlsx", "txt"], default="xlsx", help="Output format. Only xlsx can be used with gop-gen (default: %(default)s)")
+    gop_dump.set_defaults(handler=run_gop_dump)
+
+    # sub commend for gop generator
+    gop_gen = sub_cmd.add_parser("gop-gen", help="Generate a gop file from an xlsx file created by gop-dump")
+    gop_gen.add_argument("-i", "--input", type=Path, required=True, help="Path to the input xlsx file")
+    gop_gen.add_argument("-o", "--output", type=Path, required=True, help="Path to the output gop file")
+    gop_gen.set_defaults(handler=run_gop_gen)
+
+    # sub commend for gop checker
+    gop_checker = sub_cmd.add_parser("validate-gop", help="Validate a gop file. This may not be perfect")
+    gop_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input gop file")
+    gop_checker.set_defaults(handler=run_gop_check)
 
     args = parser.parse_args(argv)
     log_level = args.log or ("debug" if args.verbose else "info")  # -l/--log takes priority over -v/--verbose
