@@ -38,7 +38,8 @@ typedef struct {
     uint32 START_OFS <format=hex, bgcolor=cLtGreen>;
     uint32 unknown_2 <bgcolor=cLtRed>;
     uint32 FILE_SIZE <format=hex, bgcolor=cLtAqua>;
-    char PADDING[16] <bgcolor=cLtGray>;
+    uint32 unknown_3 <bgcolor=cLtRed>;
+    char PADDING[12] <bgcolor=cLtGray>;
 } FILE_ENTRY <read=this.FILE_NAME>;
 
 

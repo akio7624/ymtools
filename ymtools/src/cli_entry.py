@@ -72,6 +72,14 @@ def run_apk_check_idx(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_trp_unpack(args: argparse.Namespace) -> int:
+    return 0
+
+
+def run_trp_pack(args: argparse.Namespace) -> int:
+    return 0
+
+
 def run_gop_dump(args: argparse.Namespace) -> int:
     return GopDumper(args.input, args.output, args.format).run()
 
@@ -130,6 +138,18 @@ def main(argv: list[str] | None = None) -> int:
     idx_checker.add_argument("-i", "--input", type=Path, required=True, help="Path to the input idx file. The associated apk files are located automatically, relative to the location of the idx file")
     idx_checker.add_argument("-b", "--base", type=Path, required=False, help="Specifies the base path where the apk and idx files are located. See the documentation for details")
     idx_checker.set_defaults(handler=run_apk_check_idx)
+
+    # sub commend for trp unpacker
+    trp_unpack = sub_cmd.add_parser("trp-unpack", help="Unpack a trp file (trophy archive, version 2 only)")
+    trp_unpack.add_argument("-i", "--input", type=Path, required=True, help="Path to the input trp file")
+    trp_unpack.add_argument("-o", "--output", type=Path, required=True, help="Directory to extract files into")
+    trp_unpack.set_defaults(handler=run_trp_unpack)
+
+    # sub commend for trp packer
+    trp_pack = sub_cmd.add_parser("trp-pack", help="Pack a directory into a single trp file (version 2 only)")
+    trp_pack.add_argument("-i", "--input", type=Path, required=True, help="Path to the source directory. It must have the same layout as the output of the trp-unpack command")
+    trp_pack.add_argument("-o", "--output", type=Path, required=True, help="Path to the output trp file")
+    trp_pack.set_defaults(handler=run_trp_pack)
 
     # sub commend for gop dumper
     gop_dump = sub_cmd.add_parser("gop-dump", help="Dump a gop file into xlsx and txt files")
