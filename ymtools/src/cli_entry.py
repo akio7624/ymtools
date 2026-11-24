@@ -19,6 +19,9 @@ from ymtools.src.gop.dumper import GopDumper
 from ymtools.src.gop.exceptions import GopDumpException
 from ymtools.src.gop.patcher import GopPatcher
 from ymtools.src.logger import setup_cli_logging
+from ymtools.src.trp.exceptions import TrpPackException, TrpUnpackException
+from ymtools.src.trp.packer import TrpPacker
+from ymtools.src.trp.unpacker import TrpUnpacker
 
 log = logging.getLogger(__name__)
 
@@ -73,11 +76,11 @@ def run_apk_check_idx(args: argparse.Namespace) -> int:
 
 
 def run_trp_unpack(args: argparse.Namespace) -> int:
-    return 0
+    return TrpUnpacker(args.input, args.output).run()
 
 
 def run_trp_pack(args: argparse.Namespace) -> int:
-    return 0
+    return TrpPacker(args.input, args.output).run()
 
 
 def run_gop_dump(args: argparse.Namespace) -> int:
@@ -190,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except ValidationException:
         return 1
-    except (PackerException, IdxGenException, GopDumpException) as e:
+    except (PackerException, IdxGenException, GopDumpException, TrpUnpackException, TrpPackException) as e:
         log.error(str(e))
         return 1
     finally:
